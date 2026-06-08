@@ -56,7 +56,7 @@
     // RIGHT); 'left' = clockwise (to the dealer's left).
     playDirection: 'right',
 
-    heartsMustBeBroken: true,  // can't lead hearts until a heart has been played
+    heartsMustBeBroken: false, // off by default: hearts may be led at any time
     queenBreaksHearts: true,   // playing the Black Queen also "breaks" hearts
 
     // MUST-THROW QUEEN: when you can't follow the led suit (you're void) and you

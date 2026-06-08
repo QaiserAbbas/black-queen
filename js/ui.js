@@ -23,6 +23,13 @@
       this.activeIndex = -1;
       this._bindStaticControls();
       this._buildMenuFan();
+      // Re-fan the hand whenever the viewport changes (rotate / resize), so the
+      // cards always spread to use the available width.
+      let raf = 0;
+      window.addEventListener('resize', () => {
+        cancelAnimationFrame(raf);
+        raf = requestAnimationFrame(() => this.layoutHumanHand());
+      });
     }
 
     /* ---- screen routing --------------------------------------------------- */
@@ -93,7 +100,11 @@
           '<div class="avatar">' + p.name.charAt(0).toUpperCase() + '</div>' +
           '<div class="meta"><span class="pname">' + p.name + ' ' + tag +
           (stuck ? ' <span class="queen-tag">♛</span>' : '') + '</span>' +
-          '<span class="pscore">' + p.totalScore + ' pts · ' + p.tricksWon + ' hands · ' + conceded + ' this round</span></div>';
+          '<span class="pscore">' +
+            '<span class="st" title="Total score"><b>' + p.totalScore + '</b> pts</span>' +
+            '<span class="st" title="Hands won this round"><b>' + p.tricksWon + '</b> won</span>' +
+            '<span class="st" title="Points conceded this round"><b>' + conceded + '</b> rnd</span>' +
+          '</span></div>';
         b.classList.toggle('dealer', idx === e.dealerIndex);
         b.classList.toggle('stuck', stuck);
         b.classList.toggle('is-bot', isBot);
@@ -146,7 +157,30 @@
         el.addEventListener('click', () => this.onHumanCardClick(card.id, el));
         wrap.appendChild(el);
       });
+      this.layoutHumanHand();
       this.applyPlayable();
+    }
+
+    /* Fan the hand to fill the available width: every card spread evenly so its
+       top-left index stays visible and tappable, never overlapping more than
+       necessary. Driven by card count + viewport, so it adapts to any screen. */
+    layoutHumanHand() {
+      const wrap = $('#humanHand');
+      if (!wrap) return;
+      const cards = $$('.card', wrap);
+      const n = cards.length;
+      if (!n) return;
+      // Use the intended card width from CSS (not measured — avoids deal-anim scale).
+      const cardW = parseFloat(getComputedStyle(document.documentElement)
+        .getPropertyValue('--card-w')) || 90;
+      // The hand centers on screen and may overflow its column into the empty
+      // side cells, so it can span almost the full viewport.
+      const span = window.innerWidth * 0.94;
+      let step = n > 1 ? (span - cardW) / (n - 1) : 0;     // gap between card lefts
+      step = Math.min(step, cardW * 0.63);                 // cap overlap → keep an elegant fan on wide screens
+      cards.forEach((el, i) => {
+        el.style.marginLeft = i === 0 ? '0px' : (step - cardW) + 'px';
+      });
     }
 
     /* ---- turn handling ---------------------------------------------------- */
