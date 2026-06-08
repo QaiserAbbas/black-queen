@@ -1,0 +1,14 @@
+# dependencies (there are none, but just in case)
+node_modules/
+npm-debug.log*
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# local tooling / test artifacts
+.playwright-mcp/
+*.log
+*.png

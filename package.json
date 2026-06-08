@@ -1,0 +1,13 @@
+{
+  "name": "black-queen",
+  "version": "1.0.0",
+  "description": "Black Queen — a trick-taking card game with single-player and LAN/online multiplayer. Zero dependencies.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=14"
+  },
+  "license": "MIT"
+}

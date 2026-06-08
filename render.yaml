@@ -1,0 +1,17 @@
+# Render Blueprint — one service that serves the game AND runs the WebSocket
+# multiplayer server. Render: New + > Blueprint > pick this repo.
+# Docs: https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: black-queen
+    runtime: node
+    plan: free                # free tier sleeps when idle (first hit ~30-50s)
+    buildCommand: npm install  # no dependencies — this is effectively a no-op
+    startCommand: npm start    # = node server.js  (binds to $PORT)
+    healthCheckPath: /
+    autoDeploy: true           # redeploy on every git push
+    # Rooms are stored in memory, so keep this to a SINGLE instance — do not
+    # enable scaling, or players could land on different instances.
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
