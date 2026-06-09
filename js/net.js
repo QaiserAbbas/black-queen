@@ -147,7 +147,7 @@
         case 'trickWon':
           this.emit('trickWon', {
             winnerIndex: hint.winnerIndex, points: hint.points,
-            handNo: hint.handNo, tookQueen: hint.tookQueen,
+            handNo: hint.handNo, tookQueen: hint.tookQueen, queenDisregarded: hint.queenDisregarded,
             trick: this.currentTrick.slice(),
           });
           break;

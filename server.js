@@ -427,7 +427,8 @@ function wireEngine(room) {
   e.on('heartsBroken', () => broadcast(room, { name: 'heartsBroken' }));
   e.on('cardPlayed', () => broadcast(room, { name: 'cardPlayed' }));
   e.on('trickWon', (ev) => broadcast(room, {
-    name: 'trickWon', winnerIndex: ev.winnerIndex, points: ev.points, handNo: ev.handNo, tookQueen: ev.tookQueen,
+    name: 'trickWon', winnerIndex: ev.winnerIndex, points: ev.points, handNo: ev.handNo,
+    tookQueen: ev.tookQueen, queenDisregarded: ev.queenDisregarded,
   }));
   e.on('roundEnd', (ev) => {
     room.lastRoundEnd = { round: ev.round, roundScores: ev.roundScores, totals: ev.totals, breakdown: ev.breakdown };

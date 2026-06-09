@@ -456,9 +456,12 @@
 
     _isGameOver() {
       const r = this.rules;
+      // ABSOLUTE RULE: the moment ANY player reaches the target score (100 by
+      // default), the game ends after the current hand — regardless of end mode.
+      if (this.players.some((p) => p.totalScore >= r.endScore)) return true;
+      // Otherwise, in fixed-rounds mode, stop once the round limit is reached.
       if (r.endMode === 'fixedRounds') return this.round >= r.roundLimit;
-      // targetScore: any player reaches/exceeds endScore.
-      return this.players.some((p) => p.totalScore >= r.endScore);
+      return false;
     }
 
     _endGame() {

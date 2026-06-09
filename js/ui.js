@@ -299,8 +299,8 @@
         const extra = e.points > 0 ? ' (still +' + e.points + ' ♥)' : '';
         this.handResult('Hand ' + e.handNo, who + ' caught ♛ — disregarded' + extra, '♛', false);
       } else if (e.tookQueen) {
-        BQ.Sound.penalty();
         this.handResult('Hand ' + e.handNo, who + ' stuck with ♛ (+' + this.engine.rules.queenPoints + ')', '♛', true);
+        this.queenSting(name, e.winnerIndex === this.me);
       } else if (e.points > 0) {
         BQ.Sound.penalty();
         this.handResult('Hand ' + e.handNo, who + ' concede' + (who === 'You' ? '' : 's') + ' ' + e.points + ' pts', e.points, false);
@@ -500,6 +500,56 @@
       el.classList.add('show');
       clearTimeout(this._handResultTimer);
       this._handResultTimer = setTimeout(() => el.classList.remove('show'), 2600);
+    }
+
+    /* ---- Black Queen "sting": a mocking animation when a player gets stuck
+       with the Queen. Works in single-player AND multiplayer (each client sees
+       it for whoever was hit, personalised if it's them). --------------------*/
+    queenSting(name, isYou) {
+      const tauntsYou = [
+        'The Queen chose YOU 💀', 'Ouch! You grabbed the Black Queen 😩',
+        'You got crowned… 👑', "Stuck with the Queen — that's gotta hurt 🤡",
+        'The Queen says hi 👋💀',
+      ];
+      const tauntsThem = [
+        name + ' got CROWNED! 👑', 'The Black Queen picked ' + name + ' 💀',
+        'Ouch — ' + name + " can't escape the Queen 😈", 'Bad luck, ' + name + '! 🃏',
+        'Everybody point at ' + name + ' 👉😂',
+      ];
+      const pool = isYou ? tauntsYou : tauntsThem;
+      // Vary the taunt without Date/Math seeding concerns — plain Math.random is fine here.
+      const taunt = pool[Math.floor(Math.random() * pool.length)];
+      const pts = (this.engine.rules && this.engine.rules.queenPoints) || 12;
+
+      const card = document.createElement('div');
+      card.className = 'queen-sting' + (isYou ? ' you' : '');
+      card.innerHTML =
+        '<div class="qs-card">Q<span>♠</span></div>' +
+        '<div class="qs-name">' + name + (isYou ? ' (You)' : '') + '</div>' +
+        '<div class="qs-taunt">' + taunt + '</div>' +
+        '<div class="qs-pts">+' + pts + '</div>';
+      document.body.appendChild(card);   // body (not #fx) so the screen-shake can't drag it
+
+      // a little rain of queens for extra mockery
+      for (let i = 0; i < 14; i++) {
+        const q = document.createElement('div');
+        q.className = 'queen-rain';
+        q.textContent = '♛';
+        q.style.left = Math.random() * 100 + 'vw';
+        q.style.animationDuration = (1.6 + Math.random() * 1.6) + 's';
+        q.style.animationDelay = (Math.random() * 0.5) + 's';
+        q.style.fontSize = (18 + Math.random() * 26) + 'px';
+        document.body.appendChild(q);
+        setTimeout(() => q.remove(), 3600);
+      }
+
+      // brief screen shake on the table
+      const shakeEl = document.getElementById('game') || document.getElementById('app');
+      if (shakeEl) { shakeEl.classList.add('shake'); setTimeout(() => shakeEl.classList.remove('shake'), 600); }
+
+      BQ.Sound.penalty();
+      requestAnimationFrame(() => card.classList.add('show'));
+      setTimeout(() => { card.classList.add('out'); setTimeout(() => card.remove(), 400); }, 2200);
     }
 
     confetti() {
