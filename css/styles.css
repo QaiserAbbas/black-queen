@@ -625,3 +625,20 @@ table.score .stuck-row td { background: rgba(192,57,43,0.16); }
   .hand.south .card.playable::before { opacity: 1; }
   .hand.south .card.playable:hover { transform: translateY(-12px); box-shadow: 0 6px 16px var(--shadow); }
 }
+
+/* Reconnecting banner — shown while we transparently re-attach to a game
+   after a refresh or a dropped connection. */
+.reconnect-banner {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 9999;
+  display: none; align-items: center; justify-content: center; gap: 0.55rem;
+  padding: 0.5rem 1rem; font-weight: 600; font-size: 0.95rem;
+  color: #08110b; background: linear-gradient(90deg, #ffd76a, #ffb347);
+  box-shadow: 0 2px 14px rgba(0, 0, 0, 0.35);
+}
+.reconnect-banner.show { display: flex; }
+.reconnect-banner .spin {
+  width: 14px; height: 14px; border-radius: 50%;
+  border: 2px solid rgba(8, 17, 11, 0.35); border-top-color: #08110b;
+  animation: bqspin 0.7s linear infinite;
+}
+@keyframes bqspin { to { transform: rotate(360deg); } }

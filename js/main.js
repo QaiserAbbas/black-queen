@@ -22,6 +22,30 @@
     try { localStorage.setItem('bq_rules', JSON.stringify(rules)); } catch (_) {}
   }
 
+  // ---- multiplayer session token (survives refresh / reconnect) ----------
+  function loadSession() {
+    try { return JSON.parse(localStorage.getItem('bq_session') || 'null'); } catch (_) { return null; }
+  }
+  function saveSession(s) {
+    try { localStorage.setItem('bq_session', JSON.stringify(s)); } catch (_) {}
+  }
+  function clearSession() {
+    session = null;
+    try { localStorage.removeItem('bq_session'); } catch (_) {}
+  }
+
+  // ---- single-player game persistence (survives refresh; works offline) --
+  const SP_KEY = 'bq_sp_game';
+  function loadSPGame() {
+    try { const d = JSON.parse(localStorage.getItem(SP_KEY) || 'null'); return (d && d.v === 1) ? d : null; } catch (_) { return null; }
+  }
+  function saveSPGame(snap) {
+    try { localStorage.setItem(SP_KEY, JSON.stringify(snap)); } catch (_) {}
+  }
+  function clearSPGame() {
+    try { localStorage.removeItem(SP_KEY); } catch (_) {}
+  }
+
   let rules = loadRules();
   let engine = null;
   const ui = new BQ.UI();
@@ -32,6 +56,12 @@
   let isMultiplayer = false;
   let isHost = false;
   let myName = 'You';
+  // Reconnection: a persisted session token lets a refreshed / dropped player
+  // re-attach to their exact seat. We also auto-reconnect (with backoff) when
+  // the socket drops without a page reload (e.g. a brief Wi-Fi outage).
+  let session = loadSession();
+  let reconnectTimer = null;
+  let reconnectAttempts = 0;
 
   /* ---- Settings editor schema (label, key, type, opts) ------------------- */
   const SETTINGS_SCHEMA = [
@@ -160,14 +190,44 @@
   /* ---- Game lifecycle (single player) ----------------------------------- */
   function newGame(name) {
     isMultiplayer = false; isHost = true;
+    clearSPGame();                       // start fresh — drop any old saved game
     engine = new BQ.GameEngine(rules);
     engine.init(name);
+    wireSinglePersistence(engine);
     ui.attach(engine);
     ui.show('game');
     BQ.Sound.unlock();
     if (rules.soundEnabled) BQ.Sound.startMusic();
     setupRoundControls();
     engine.startRound();
+  }
+
+  // Persist the local game after every state change so a refresh can restore it.
+  function wireSinglePersistence(eng) {
+    const save = () => { if (!isMultiplayer && engine === eng) saveSPGame(eng.snapshot()); };
+    ['roundStart', 'turn', 'cardPlayed', 'trickWon', 'heartsBroken', 'roundEnd'].forEach((ev) => eng.on(ev, save));
+    eng.on('gameOver', clearSPGame);     // finished — nothing left to resume
+  }
+
+  // On page load: rebuild a single-player game in progress from localStorage.
+  function resumeSingleGame() {
+    const data = loadSPGame();
+    if (!data || !data.players) return false;
+    try {
+      isMultiplayer = false; isHost = true;
+      engine = BQ.GameEngine.fromSnapshot(data);
+      wireSinglePersistence(engine);
+      setupRoundControls();
+      ui.attach(engine);
+      ui.show('game');
+      BQ.Sound.unlock();
+      if (rules.soundEnabled) BQ.Sound.startMusic();
+      engine.resume();
+      return true;
+    } catch (_) {
+      clearSPGame();
+      return false;
+    }
   }
 
   /* ---- Multiplayer ------------------------------------------------------- */
@@ -213,16 +273,73 @@
     return net.connect();
   }
 
+  // Re-open the socket and reclaim our seat, backing off on repeated failure.
+  function scheduleReconnect() {
+    if (reconnectTimer || !session) return;
+    const delay = Math.min(1000 * Math.pow(1.6, reconnectAttempts), 8000);
+    reconnectAttempts++;
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      net = new BQ.NetClient();
+      wireNet();
+      net.connect()
+        .then(() => net.send({ t: 'resume', code: session.code, token: session.token }))
+        .catch(() => scheduleReconnect());
+    }, delay);
+  }
+
+  // On page load: walk straight back into whatever game we were in.
+  function attemptResume() {
+    // Multiplayer session takes priority (it needs the server).
+    if (session && session.token && session.code &&
+        (location.protocol === 'http:' || location.protocol === 'https:')) {
+      myName = session.name || 'Player';
+      ui.setReconnecting(true);
+      ensureConnected()
+        .then(() => net.send({ t: 'resume', code: session.code, token: session.token }))
+        .catch(() => { ui.setReconnecting(false); resumeSingleGame(); });
+      return;
+    }
+    // Otherwise restore a single-player game in progress (works offline too).
+    resumeSingleGame();
+  }
+
   function wireNet() {
-    net.on('joined', (m) => { $('#mpError').textContent = ''; });
+    net.on('joined', (m) => {
+      $('#mpError').textContent = '';
+      if (m.host != null) isHost = m.host;
+      // Remember who we are so a refresh / drop can reclaim this exact seat.
+      if (m.token && m.code) {
+        myName = myName || (session && session.name) || 'Player';
+        session = { code: m.code, token: m.token, name: myName };
+        saveSession(session);
+      }
+      // A successful (re)attach clears any reconnect backoff + banner.
+      reconnectAttempts = 0;
+      if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+      ui.setReconnecting(false);
+    });
     net.on('error', (m) => { setMpStatus(m.msg || 'Error', 'bad'); $('#mpError').textContent = ''; BQ.Sound.error(); });
+    net.on('resumeFail', () => {
+      // The room/seat is gone (game ended, or held too long). Drop the stale
+      // session and return to a clean menu.
+      clearSession();
+      ui.setReconnecting(false);
+      if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+      if (isMultiplayer) { ui.toast('That game has ended — returning to menu.'); isMultiplayer = false; netEngine = null; }
+      ui.show('menu');
+    });
     net.on('lobby', (m) => {
       isHost = m.state.youAreHost;
       renderLobby(m.state);
       ui.show('lobby');
     });
     net.on('close', () => {
-      if (isMultiplayer) ui.toast('Disconnected from server');
+      // Lost the socket. If we're in a game with a saved session, transparently
+      // reconnect + resume; otherwise just note it.
+      if (!isMultiplayer || !session) { if (isMultiplayer) ui.toast('Disconnected from server'); return; }
+      ui.setReconnecting(true);
+      scheduleReconnect();
     });
     net.on('ready', (m) => renderReady(m));
     net.on('game', (m) => {
@@ -319,13 +436,10 @@
 
   function leaveMultiplayer() {
     if (net) { net.send({ t: 'leave' }); }
-    netEngine = null; isMultiplayer = false;
-    BQ.Sound.stopMusic();
-    ui.show('menu');
-  }
-
-  function leaveMultiplayer() {
-    if (net) { net.send({ t: 'leave' }); }
+    clearSession();                                     // don't auto-resume after leaving on purpose
+    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+    reconnectAttempts = 0;
+    ui.setReconnecting(false);
     netEngine = null; isMultiplayer = false;
     BQ.Sound.stopMusic();
     ui.show('menu');
@@ -371,6 +485,7 @@
     $('#btnQuit').addEventListener('click', () => {
       if (!confirm('Quit to main menu? Current game will be lost.')) return;
       if (isMultiplayer) { leaveMultiplayer(); return; }
+      clearSPGame();
       BQ.Sound.stopMusic();
       ui.show('menu');
     });
@@ -419,6 +534,7 @@
       BQ.Sound.click();
       ui.closeOverlay('gameOverOverlay');
       if (isMultiplayer) { leaveMultiplayer(); return; }
+      clearSPGame();
       BQ.Sound.stopMusic();
       ui.show('menu');
     });
@@ -426,6 +542,9 @@
     // initial sound icon state
     $('#btnSound').textContent = rules.soundEnabled ? '🔊' : '🔇';
     BQ.Sound.setEnabled(rules.soundEnabled);
+
+    // If we were in a game and the page reloaded, jump straight back into it.
+    attemptResume();
   }
 
   document.addEventListener('DOMContentLoaded', wire);

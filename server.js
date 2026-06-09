@@ -153,6 +153,29 @@ server.on('upgrade', (req, socket) => {
 const clients = new Map();   // id -> client
 const rooms = new Map();     // code -> room
 
+// How long we hold a seat (and an all-bot in-progress room) so a refreshed or
+// briefly-disconnected player can reclaim their EXACT seat via their session
+// token before we let it go.
+const RECONNECT_GRACE_MS = 90 * 1000;
+
+// A per-player session token: survives reconnects, so a refreshed browser can
+// re-attach to the same seat instead of spawning a brand-new one.
+function makeToken() { return crypto.randomBytes(16).toString('hex'); }
+
+// Tear a room down only after the grace window with nobody connected — so a
+// brief outage (Wi-Fi drop, tunnel hiccup) doesn't destroy an in-progress game.
+function scheduleRoomCleanup(room) {
+  if (room.cleanupTimer) clearTimeout(room.cleanupTimer);
+  room.cleanupTimer = setTimeout(() => {
+    const anyHuman = room.seats.some((s) => s.clientId && clients.get(s.clientId));
+    if (!anyHuman) {
+      if (room.botTimer) clearTimeout(room.botTimer);
+      room.seats.forEach((s) => { if (s.graceTimer) clearTimeout(s.graceTimer); });
+      rooms.delete(room.code);
+    }
+  }, RECONNECT_GRACE_MS);
+}
+
 function makeCode() {
   const A = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   let code;
@@ -166,11 +189,15 @@ function makeRoom(hostClient) {
   const room = {
     code,
     hostId: hostClient.id,
+    hostToken: null,     // host's seat token — lets the host reclaim host on reconnect
     rules: BQ.cloneRules(),
-    seats: [],        // [{clientId|null, name, isBot}]
+    seats: [],        // [{clientId|null, name, isBot, token, disconnected, graceTimer}]
     engine: null,
     started: false,
     botTimer: null,
+    cleanupTimer: null,  // pending room teardown (cancelled if someone reconnects)
+    lastRoundEnd: null,  // last round-summary payload, replayed to a reconnecting player
+    lastGameOver: null,  // last game-over payload, replayed to a reconnecting player
     ready: new Set(), // seats that confirmed "ready" for the next round
   };
   rooms.set(code, room);
@@ -237,9 +264,11 @@ function handleMessage(client, msg) {
     case 'create': {
       const room = makeRoom(client);
       client.name = (msg.name || 'Host').slice(0, 14);
-      room.seats.push({ clientId: client.id, name: client.name, isBot: false });
+      const token = makeToken();
+      room.hostToken = token;
+      room.seats.push({ clientId: client.id, name: client.name, isBot: false, token });
       client.roomCode = room.code; client.seat = 0;
-      client.send({ t: 'joined', code: room.code, seat: 0 });
+      client.send({ t: 'joined', code: room.code, seat: 0, token, host: true });
       broadcastLobby(room);
       break;
     }
@@ -268,10 +297,55 @@ function handleMessage(client, msg) {
 
       client.name = (msg.name || 'Player').slice(0, 14);
       const seat = room.seats.length;
-      room.seats.push({ clientId: client.id, name: client.name, isBot: false });
+      const token = makeToken();
+      room.seats.push({ clientId: client.id, name: client.name, isBot: false, token });
       client.roomCode = room.code; client.seat = seat;
-      client.send({ t: 'joined', code: room.code, seat });
+      if (room.cleanupTimer) { clearTimeout(room.cleanupTimer); room.cleanupTimer = null; }
+      client.send({ t: 'joined', code: room.code, seat, token, host: false });
       broadcastLobby(room);
+      break;
+    }
+    // Reconnect: a refreshed / dropped player presents their session token and
+    // we re-attach this NEW connection to their EXISTING seat — same room, same
+    // hand, same score — instead of creating a new one.
+    case 'resume': {
+      const code = (msg.code || '').toUpperCase().replace(/\s+/g, '');
+      const room = code ? rooms.get(code) : null;
+      if (!room) return client.send({ t: 'resumeFail', reason: 'room-gone' });
+      const seatIdx = room.seats.findIndex((s) => s.token && s.token === msg.token);
+      if (seatIdx < 0) return client.send({ t: 'resumeFail', reason: 'seat-gone' });
+
+      const seat = room.seats[seatIdx];
+      if (seat.graceTimer) { clearTimeout(seat.graceTimer); seat.graceTimer = null; }
+      if (room.cleanupTimer) { clearTimeout(room.cleanupTimer); room.cleanupTimer = null; }
+
+      seat.clientId = client.id;
+      seat.isBot = false;
+      seat.disconnected = false;
+      client.roomCode = code;
+      client.seat = seatIdx;
+      client.name = seat.name;
+      const isHost = !!(room.hostToken && room.hostToken === seat.token);
+      if (isHost) room.hostId = client.id;
+
+      client.send({ t: 'joined', code, seat: seatIdx, token: seat.token, host: isHost });
+
+      if (room.started && room.engine) {
+        const e = room.engine;
+        // 1) a full snapshot so the table fully repaints from the current state
+        client.send({ t: 'game', snapshot: snapshotFor(room, seatIdx), hint: { name: 'resync' } });
+        // 2) re-show the round-summary / game-over overlay if we're parked there
+        if (e.phase === 'roundEnd' && room.lastRoundEnd) {
+          client.send({ t: 'game', snapshot: snapshotFor(room, seatIdx), hint: Object.assign({ name: 'roundEnd' }, room.lastRoundEnd) });
+          broadcastReady(room);
+        } else if (e.phase === 'gameOver' && room.lastGameOver) {
+          client.send({ t: 'game', snapshot: snapshotFor(room, seatIdx), hint: Object.assign({ name: 'gameOver' }, room.lastGameOver) });
+        }
+        // tell everyone else's table the seat is a human again (drops the BOT tag)
+        broadcast(room, { name: 'sync' });
+      } else {
+        broadcastLobby(room);
+      }
       break;
     }
     case 'rules': {
@@ -334,6 +408,8 @@ function startGame(room) {
     room.seats.push({ clientId: null, name, isBot: true });
   }
   room.started = true;
+  room.lastRoundEnd = null;
+  room.lastGameOver = null;
 
   const engine = new BQ.GameEngine(room.rules);
   engine.initWithPlayers(room.seats.map((s) => s.name));
@@ -347,24 +423,24 @@ function startGame(room) {
 function wireEngine(room) {
   const e = room.engine;
 
-  e.on('roundStart', (ev) => broadcast(room, { name: 'roundStart', leaderIndex: ev.leaderIndex }));
+  e.on('roundStart', (ev) => { room.lastRoundEnd = null; broadcast(room, { name: 'roundStart', leaderIndex: ev.leaderIndex }); });
   e.on('heartsBroken', () => broadcast(room, { name: 'heartsBroken' }));
   e.on('cardPlayed', () => broadcast(room, { name: 'cardPlayed' }));
   e.on('trickWon', (ev) => broadcast(room, {
     name: 'trickWon', winnerIndex: ev.winnerIndex, points: ev.points, handNo: ev.handNo, tookQueen: ev.tookQueen,
   }));
   e.on('roundEnd', (ev) => {
-    broadcast(room, {
-      name: 'roundEnd', round: ev.round, roundScores: ev.roundScores, totals: ev.totals, breakdown: ev.breakdown,
-    });
+    room.lastRoundEnd = { round: ev.round, roundScores: ev.roundScores, totals: ev.totals, breakdown: ev.breakdown };
+    broadcast(room, Object.assign({ name: 'roundEnd' }, room.lastRoundEnd));
     // Begin collecting "ready" confirmations for the next round (unless the
     // game just ended — gameOver fires right after this).
     room.ready = new Set();
     if (e.phase !== 'gameOver') broadcastReady(room);
   });
-  e.on('gameOver', (ev) => broadcast(room, {
-    name: 'gameOver', totals: ev.totals, winnerIndex: ev.winnerIndex, ranking: ev.ranking,
-  }));
+  e.on('gameOver', (ev) => {
+    room.lastGameOver = { totals: ev.totals, winnerIndex: ev.winnerIndex, ranking: ev.ranking };
+    broadcast(room, Object.assign({ name: 'gameOver' }, room.lastGameOver));
+  });
 
   // On every turn, if the seat is a bot (or a disconnected player), the SERVER
   // plays for it after a short think delay.
@@ -441,31 +517,60 @@ function dropClient(client, intentional) {
 
   const seat = room.seats[client.seat];
   if (seat && seat.clientId === client.id) {
-    if (room.started) {
-      // convert to bot so the game continues
-      seat.clientId = null; seat.isBot = true;
-      // if it's their turn right now, nudge a bot move
+    if (intentional) {
+      // The player chose to leave: surrender the seat identity for good (clear
+      // the token so it can't be reclaimed).
+      const wasHost = room.hostToken && room.hostToken === seat.token;
+      seat.token = null;
+      if (wasHost) room.hostToken = null;
+      if (room.started) {
+        seat.clientId = null; seat.isBot = true; seat.disconnected = false;
+        if (room.engine && room.engine.phase === 'awaitHuman' && room.engine.currentPlayerIndex === client.seat) scheduleBot(room, client.seat);
+        if (room.engine && room.engine.phase === 'roundEnd') { room.ready.delete(client.seat); checkReady(room); }
+        broadcast(room, { name: 'sync' });
+      } else {
+        room.seats.splice(client.seat, 1);
+        room.seats.forEach((s, i) => { if (s.clientId) { const c = clients.get(s.clientId); if (c) c.seat = i; } });
+      }
+    } else if (room.started) {
+      // Unintentional drop (refresh / Wi-Fi blip): a bot fills in so the game
+      // never stalls, but the seat + token are HELD so the player can reclaim
+      // their exact seat with a `resume`.
+      seat.clientId = null; seat.isBot = true; seat.disconnected = true;
       if (room.engine && room.engine.phase === 'awaitHuman' && room.engine.currentPlayerIndex === client.seat) {
         scheduleBot(room, client.seat);
       }
-      // if we were waiting on them to confirm the next round, recheck without them
       if (room.engine && room.engine.phase === 'roundEnd') { room.ready.delete(client.seat); checkReady(room); }
       broadcast(room, { name: 'sync' });
     } else {
-      // remove from lobby
-      room.seats.splice(client.seat, 1);
-      room.seats.forEach((s, i) => { if (s.clientId) { const c = clients.get(s.clientId); if (c) c.seat = i; } });
+      // Unintentional drop in the lobby: hold the seat for a short grace window
+      // so a refresh lands them back in the same spot, then free it.
+      seat.clientId = null; seat.disconnected = true;
+      if (seat.graceTimer) clearTimeout(seat.graceTimer);
+      seat.graceTimer = setTimeout(() => {
+        const idx = room.seats.indexOf(seat);
+        if (idx >= 0 && seat.disconnected && !seat.clientId) {
+          room.seats.splice(idx, 1);
+          room.seats.forEach((s, i) => { if (s.clientId) { const c = clients.get(s.clientId); if (c) c.seat = i; } });
+          if (room.seats.some((s) => s.clientId)) broadcastLobby(room);
+        }
+      }, RECONNECT_GRACE_MS);
+      broadcastLobby(room);
     }
   }
 
-  // host left? reassign or close
+  // Host left? Temporarily delegate to a live human; the original reclaims it
+  // via their token if they reconnect.
   if (room.hostId === client.id) {
-    const next = room.seats.find((s) => s.clientId);
+    const next = room.seats.find((s) => s.clientId && clients.get(s.clientId));
     if (next) room.hostId = next.clientId;
   }
-  const anyHuman = room.seats.some((s) => s.clientId);
-  if (!anyHuman) { if (room.botTimer) clearTimeout(room.botTimer); rooms.delete(room.code); }
-  else if (!room.started) broadcastLobby(room);
+
+  const anyHuman = room.seats.some((s) => s.clientId && clients.get(s.clientId));
+  if (!anyHuman) {
+    if (!room.started) { if (room.botTimer) clearTimeout(room.botTimer); rooms.delete(room.code); }
+    else scheduleRoomCleanup(room);   // hold the in-progress game for a reconnect
+  } else if (!room.started) broadcastLobby(room);
   else broadcast(room, { name: 'sync' });
 }
 

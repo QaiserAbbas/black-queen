@@ -162,6 +162,12 @@
             totals: hint.totals, winnerIndex: hint.winnerIndex, ranking: hint.ranking,
           });
           break;
+        case 'resync':
+          // A reconnecting player: rebuild the whole table from the snapshot,
+          // then restore the active-turn highlight + playable cards.
+          this.emit('resync', { phase: s.phase });
+          this.emit('turn', { playerIndex: s.currentPlayerIndex, legalCardIds: s.legalCardIds });
+          break;
         case 'sync':
         default:
           this.emit('state', { phase: s.phase });

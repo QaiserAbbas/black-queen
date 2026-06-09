@@ -59,8 +59,47 @@
       engine.on('heartsBroken', () => this.flashHearts());
       engine.on('roundEnd', (e) => this.onRoundEnd(e));
       engine.on('gameOver', (e) => this.onGameOver(e));
+      engine.on('resync', () => this.resync());
 
       this.renderBadges();
+    }
+
+    /* ---- full repaint from current state (used when a player reconnects) -- */
+    resync() {
+      const e = this.engine;
+      $('#roundChip').textContent = 'Round ' + (e.round || 1);
+      this.closeOverlay('roundOverlay');
+      this.closeOverlay('gameOverOverlay');
+      this.renderBadges();
+      // opponents' face-down stacks (others' hands are length-only placeholders)
+      e.players.forEach((p, i) => {
+        if (i === this.me) return;
+        this.renderFacedown(this.seatOf[i], p.hand.length);
+      });
+      // my hand — no deal animation on a reconnect
+      this.renderHumanHand(e.players[this.me].hand, false);
+      // the in-progress trick already on the felt
+      this._clearTrick();
+      (e.currentTrick || []).forEach((play) => {
+        const seat = this.seatOf[play.playerIndex];
+        const slot = document.createElement('div');
+        slot.className = 'slot ' + seat;
+        slot.appendChild(this.cardEl(play.card, true));
+        $('#trick').appendChild(slot);
+      });
+    }
+
+    /* ---- "Reconnecting…" banner (transparent re-attach in progress) ------- */
+    setReconnecting(on) {
+      let el = document.getElementById('reconnectBanner');
+      if (!el) {
+        el = document.createElement('div');
+        el.id = 'reconnectBanner';
+        el.className = 'reconnect-banner';
+        el.innerHTML = '<span class="spin"></span><span>Reconnecting…</span>';
+        document.body.appendChild(el);
+      }
+      el.classList.toggle('show', !!on);
     }
 
     /* ---- card DOM --------------------------------------------------------- */

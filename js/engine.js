@@ -50,6 +50,8 @@
       this.heartsBroken = false;
       this.leadSuit = null;
       this._resolveHumanPlay = null; // promise hook for human input
+      this._lastRoundEnd = null;     // last round-summary payload (for refresh-resume)
+      this._lastGameOver = null;     // last game-over payload (for refresh-resume)
     }
 
     /* ---- tiny event bus --------------------------------------------------- */
@@ -130,6 +132,7 @@
       this.currentTrick = [];
       this.leadSuit = null;
       this.trickLog = [];   // hand-by-hand record for THIS round (the scorecard)
+      this._lastRoundEnd = null;  // a new round started — the old summary is stale
 
       // Build + shuffle + deal.
       const deck = BQ.shuffle(BQ.buildDeck());
@@ -437,13 +440,14 @@
         p._hearts = 0;
       });
 
-      this._setPhase('roundEnd');
-      this.emit('roundEnd', {
+      this._lastRoundEnd = {
         round: this.round,
         roundScores,
         totals: this.players.map((p) => p.totalScore),
         breakdown,
-      });
+      };
+      this._setPhase('roundEnd');
+      this.emit('roundEnd', this._lastRoundEnd);
 
       if (this._isGameOver()) {
         this._endGame();
@@ -463,12 +467,13 @@
         .sort((a, b) =>
           this.rules.lowestScoreWins ? a.score - b.score : b.score - a.score
         );
-      this._setPhase('gameOver');
-      this.emit('gameOver', {
+      this._lastGameOver = {
         totals: this.players.map((p) => p.totalScore),
         ranking,
         winnerIndex: ranking[0].index,
-      });
+      };
+      this._setPhase('gameOver');
+      this.emit('gameOver', this._lastGameOver);
     }
 
     /* ---- helpers for UI --------------------------------------------------- */
@@ -478,6 +483,88 @@
         index: p.index, name: p.name, total: p.totalScore,
         history: p.roundHistory.slice(),
       }));
+    }
+
+    /* ---- single-player persistence (survives a page refresh) -------------
+     * snapshot() → a JSON-safe blob of the FULL game state.
+     * GameEngine.fromSnapshot() rebuilds an engine from that blob.
+     * resume() repaints the table and continues play from where we left off.
+     */
+    snapshot() {
+      const card = (c) => (c ? { rank: c.rank, suit: c.suit } : null);
+      return {
+        v: 1,
+        rules: this.rules,
+        round: this.round,
+        phase: this.phase,
+        dealerIndex: this.dealerIndex,
+        trickLeaderIndex: this.trickLeaderIndex,
+        currentPlayerIndex: this.currentPlayerIndex,
+        heartsBroken: this.heartsBroken,
+        leadSuit: this.leadSuit,
+        currentTrick: this.currentTrick.map((t) => ({ playerIndex: t.playerIndex, card: card(t.card) })),
+        trickLog: this.trickLog,
+        lastRoundEnd: this._lastRoundEnd || null,
+        lastGameOver: this._lastGameOver || null,
+        players: this.players.map((p) => ({
+          index: p.index, name: p.name, isHuman: p.isHuman,
+          hand: p.hand.map(card),
+          totalScore: p.totalScore,
+          roundHistory: p.roundHistory.slice(),
+          tricksWon: p.tricksWon,
+          consecutiveZeros: p.consecutiveZeros,
+          queenTakes: p.queenTakes,
+          _penalty: p._penalty || 0,
+          _hearts: p._hearts || 0,
+        })),
+      };
+    }
+
+    static fromSnapshot(data) {
+      const e = new GameEngine(data.rules);
+      e.round = data.round;
+      e.phase = data.phase;
+      e.dealerIndex = data.dealerIndex;
+      e.trickLeaderIndex = data.trickLeaderIndex;
+      e.currentPlayerIndex = data.currentPlayerIndex;
+      e.heartsBroken = !!data.heartsBroken;
+      e.leadSuit = data.leadSuit || null;
+      e.trickLog = data.trickLog || [];
+      e._lastRoundEnd = data.lastRoundEnd || null;
+      e._lastGameOver = data.lastGameOver || null;
+      e.currentTrick = (data.currentTrick || []).map((t) => ({
+        playerIndex: t.playerIndex, card: new BQ.Card(t.card.rank, t.card.suit),
+      }));
+      e.players = (data.players || []).map((pd) => {
+        const p = new BQ.Player(pd.index, pd.name, pd.isHuman);
+        p.hand = (pd.hand || []).map((c) => new BQ.Card(c.rank, c.suit));
+        p.totalScore = pd.totalScore || 0;
+        p.roundHistory = pd.roundHistory || [];
+        p.tricksWon = pd.tricksWon || 0;
+        p.consecutiveZeros = pd.consecutiveZeros || 0;
+        p.queenTakes = pd.queenTakes || 0;
+        p._penalty = pd._penalty || 0;
+        p._hearts = pd._hearts || 0;
+        return p;
+      });
+      return e;
+    }
+
+    // Repaint the table from restored state, then continue from where we left
+    // off (re-arm a bot's pending turn, or re-show a round / game-over summary).
+    resume() {
+      this.emit('resync', {});
+      if (this.phase === 'awaitHuman') {
+        const legal = this.legalCards(this.currentPlayerIndex).map((c) => c.id);
+        this.emit('turn', { playerIndex: this.currentPlayerIndex, legalCardIds: legal });
+      } else if (this.phase === 'playing') {
+        this._beginTurn();                 // a bot was mid-think — restart its turn
+      } else if (this.phase === 'roundEnd') {
+        if (this._lastRoundEnd) this.emit('roundEnd', this._lastRoundEnd);
+      } else if (this.phase === 'gameOver') {
+        if (this._lastRoundEnd) this.emit('roundEnd', this._lastRoundEnd);
+        if (this._lastGameOver) this.emit('gameOver', this._lastGameOver);
+      }
     }
   }
 
