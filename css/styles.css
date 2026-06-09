@@ -229,7 +229,7 @@ html, body {
 /* ---------- Cards --------------------------------------------------------- */
 .card {
   width: var(--card-w); height: var(--card-h);
-  border-radius: 11px; position: relative;
+  border-radius: 3px; position: relative;
   background: var(--paper); color: var(--ink);
   box-shadow: 0 6px 16px var(--shadow);
   border: 1px solid rgba(0,0,0,0.16);
@@ -237,34 +237,24 @@ html, body {
   flex: 0 0 auto;
   font-weight: 700;
 }
-/* Card typography scales with card width so the rank stays prominent at every
-   size, and the center pip is kept small enough that the number reads clearly. */
-.card .corner {
-  position: absolute; display: flex; flex-direction: column; align-items: center;
-  line-height: 0.84; font-size: calc(var(--card-w) * 0.3); font-weight: 800;
-  letter-spacing: -0.02em;
+/* Real-deck card faces: each face is the matching vector image from /cards
+   (Byron Knoll public-domain deck — pips, court figures and indices are baked
+   into the SVG), mapped onto the card box. */
+.card.face {
+  background-color: #fff;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 100% 100%;
+  border: none;
 }
-.card .corner span { font-size: 0.7em; margin-top: 0.08em; }   /* suit — smaller than the rank */
-.card .corner.tl { top: calc(var(--card-w) * 0.07); left: calc(var(--card-w) * 0.1); }
-.card .corner.br { bottom: calc(var(--card-w) * 0.07); right: calc(var(--card-w) * 0.1); transform: rotate(180deg); }
-.card .pip {
-  position: absolute; inset: 0; display: grid; place-items: center;
-  font-size: calc(var(--card-w) * 0.42);
-  opacity: 0.9;
-}
+
 .card.red { color: var(--crimson); }
 .card.black { color: #1c2530; }
 
-/* the Black Queen gets a special regal look */
+/* The Black Queen keeps a subtle gold glow so it stays easy to spot — the face
+   itself is the real Q♠ straight from the deck. */
 .card.is-queen {
-  background: linear-gradient(160deg, #1d1d2b, #2c2c3e);
-  color: var(--gold-bright);
-  box-shadow: 0 6px 20px rgba(0,0,0,0.6), 0 0 18px rgba(233,196,106,0.35);
-  border-color: var(--gold);
-}
-.card.is-queen .pip::after {
-  content: '♛'; position: absolute; font-size: calc(var(--card-w) * 0.17);
-  transform: translateY(calc(var(--card-w) * 0.42));
+  box-shadow: 0 6px 20px rgba(0,0,0,0.55), 0 0 0 2px var(--gold), 0 0 16px rgba(233,196,106,0.6);
 }
 
 /* card back */
@@ -294,21 +284,15 @@ html, body {
   z-index: 50;
 }
 .hand.south .card.playable {
-  box-shadow: 0 6px 16px var(--shadow), 0 0 0 2px rgba(233,196,106,0.0);
+  box-shadow: 0 6px 16px var(--shadow);
 }
-.hand.south .card.playable::before {
-  content: ''; position: absolute; inset: -2px; border-radius: 12px;
-  box-shadow: 0 0 0 2px var(--gold), 0 0 16px rgba(233,196,106,0.6);
-  opacity: 0; transition: opacity 0.2s;
-}
-.hand.south .card.playable:hover::before { opacity: 1; }
 .hand.south .card.disabled { filter: brightness(0.62) saturate(0.6); cursor: not-allowed; }
 
 /* opponents show face-down stacks — all laid out as HORIZONTAL rows of cards
    that sit just under each player's name. */
 .hand.facedown { display: flex; flex-direction: row; justify-content: center; }
 .hand.facedown .card { width: var(--fd-w); height: var(--fd-h); }
-.hand.facedown.north .card { margin-left: calc(-1 * var(--fd-w)); }
+.hand.facedown.north .card { margin-left: calc(-0.76 * var(--fd-w)); }
 .hand.facedown.north .card:first-child { margin-left: 0; }
 /* left & right players: compact horizontal rows tucked beneath their badges */
 .hand.facedown.west .card, .hand.facedown.east .card {
@@ -540,6 +524,7 @@ table.score .stuck-row td { background: rgba(192,57,43,0.16); }
   .seat.west { align-items: flex-start; padding-left: max(6px, env(safe-area-inset-left)); }
   .seat.east { align-items: flex-end;   padding-right: max(6px, env(safe-area-inset-right)); }
   /* opponent face-down cards collapse into a tidy little pile */
+  .hand.facedown.north .card { margin-left: calc(-0.86 * var(--fd-w)); }
   .hand.facedown.west .card, .hand.facedown.east .card { margin-left: calc(-0.9 * var(--fd-side-w)); }
   .icon-btn { width: 38px; height: 38px; font-size: 1rem; }
   .round-chip { padding: 0.4rem 0.85rem; font-size: 0.82rem; }
@@ -622,7 +607,6 @@ table.score .stuck-row td { background: rgba(192,57,43,0.16); }
    persistently so players can see which cards they're allowed to play. */
 @media (hover: none) {
   .hand.south .card.playable { transform: translateY(-12px); }
-  .hand.south .card.playable::before { opacity: 1; }
   .hand.south .card.playable:hover { transform: translateY(-12px); box-shadow: 0 6px 16px var(--shadow); }
 }
 

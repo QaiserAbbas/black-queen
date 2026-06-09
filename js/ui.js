@@ -14,6 +14,12 @@
   // Seat order, clockwise starting from the human.
   const SEAT_ORDER = ['south', 'west', 'north', 'east'];
 
+  // Map a card to its vector image filename in /cards (Byron Knoll deck).
+  const RANK_FILE = { A: 'ace', J: 'jack', Q: 'queen', K: 'king' };
+  function cardFile(card) {
+    return (RANK_FILE[card.rank] || card.rank) + '_of_' + card.suit + '.svg';
+  }
+
   class UI {
     constructor() {
       this.engine = null;
@@ -106,14 +112,12 @@
     cardEl(card, faceUp) {
       const el = document.createElement('div');
       if (!faceUp) { el.className = 'card back'; return el; }
-      el.className = 'card ' + card.color;
+      el.className = 'card face ' + card.color;
       el.dataset.id = card.id;
       const q = this.engine.rules.queenCard;
       if (card.rank === q.rank && card.suit === q.suit) el.classList.add('is-queen');
-      el.innerHTML =
-        '<div class="corner tl">' + card.rank + '<span>' + card.symbol + '</span></div>' +
-        '<div class="pip">' + card.symbol + '</div>' +
-        '<div class="corner br">' + card.rank + '<span>' + card.symbol + '</span></div>';
+      // The face is the real vector card image from /cards.
+      el.style.backgroundImage = "url('cards/" + cardFile(card) + "')";
       return el;
     }
 
