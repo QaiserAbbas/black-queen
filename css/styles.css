@@ -122,6 +122,29 @@ html, body {
   font-weight: 800; color: #1a1208; background: linear-gradient(135deg, var(--gold-bright), var(--gold));
 }
 
+/* ---------- Seat arrangement (host Start prompt) ------------------------- */
+.seat-order-grid { display: flex; flex-direction: column; gap: 0.55rem; }
+.seat-order-row {
+  display: flex; align-items: center; gap: 0.8rem;
+  background: rgba(0,0,0,0.3); border: 1.5px solid rgba(255,255,255,0.14);
+  padding: 0.5rem 0.8rem; border-radius: 12px;
+}
+.seat-order-row.owner { border-color: var(--gold); box-shadow: 0 0 12px rgba(233,196,106,0.3); }
+.seat-order-row .so-num {
+  width: 30px; height: 30px; flex: 0 0 auto; border-radius: 50%; display: grid; place-items: center;
+  font-weight: 800; color: #1a1208; background: linear-gradient(135deg, var(--gold-bright), var(--gold));
+}
+.seat-order-row .so-name { flex: 1 1 auto; font-weight: 600; }
+.seat-order-row .so-pick { flex: 0 0 auto; display: flex; align-items: center; gap: 0.45rem; }
+.seat-order-row .so-seatlabel { color: #bfe0c9; font-size: 0.78rem; letter-spacing: 0.06em; text-transform: uppercase; }
+.seat-order-row .so-select {
+  font: inherit; padding: 0.4rem 0.6rem; border-radius: 8px; min-width: 6rem;
+  color: #f4f4ef; background: rgba(0,0,0,0.45); border: 1.5px solid rgba(255,255,255,0.22);
+}
+.seat-order-row .so-select:focus { border-color: var(--gold); outline: none; }
+.seat-order-row .so-select option { color: #1a1208; }
+.seat-order-note { color: #bfe0c9; font-size: 0.82rem; font-style: italic; padding: 0.3rem 0.2rem 0; }
+
 /* ---------- Buttons & inputs --------------------------------------------- */
 .btn {
   font: inherit; font-weight: 700; letter-spacing: 0.04em;

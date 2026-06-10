@@ -8,6 +8,7 @@
 
   const BQ = root.BQ;
   const $ = (s) => document.querySelector(s);
+  const $$ = (s) => Array.from(document.querySelectorAll(s));
 
   // Persisted rules (localStorage) layered over defaults.
   function loadRules() {
@@ -56,6 +57,7 @@
   let isMultiplayer = false;
   let isHost = false;
   let myName = 'You';
+  let lastLobbyState = null;  // most recent lobby snapshot (for the seat-arrange prompt)
   // Reconnection: a persisted session token lets a refreshed / dropped player
   // re-attach to their exact seat. We also auto-reconnect (with backoff) when
   // the socket drops without a page reload (e.g. a brief Wi-Fi outage).
@@ -416,6 +418,29 @@
       BQ.Sound.attack(m.kind);
     });
     net.on('ready', (m) => renderReady(m));
+    // Play frozen because a player left mid-game (or un-frozen once resolved).
+    net.on('paused', (m) => {
+      if (m.paused) {
+        const who = m.name ? m.name + ' left the table.' : 'A player left the table.';
+        const wait = 'Waiting for the host to add a bot, or for a new player to join'
+          + (m.code ? ' with code ' + m.code : '') + '…';
+        showPause(who + ' ' + wait);
+      } else {
+        hidePause();
+        ui.closeOverlay('vacancyOverlay');
+      }
+    });
+    // Host-only: a player left — choose a bot or wait for a new player.
+    // Receiving this means we ARE the current host (covers host reassignment
+    // when the original host is the one who left).
+    net.on('seatVacated', (m) => {
+      isHost = true;
+      const who = m.name ? m.name : 'A player';
+      $('#vacancyMsg').textContent = who + ' left the table. Add a bot to keep playing, '
+        + 'or wait for a new player to join with code ' + (m.code || (session && session.code) || '') + '.';
+      ui.openOverlay('vacancyOverlay');
+      BQ.Sound.error();
+    });
     net.on('game', (m) => {
       if (!netEngine) {
         isMultiplayer = true;
@@ -460,6 +485,7 @@
   }
 
   function renderLobby(state) {
+    lastLobbyState = state;
     $('#lobbyCode').textContent = state.code;
     const seats = state.players.map((p) =>
       '<div class="lobby-seat' + (p.you ? ' you' : '') + '">' +
@@ -476,6 +502,96 @@
       ? 'Share code ' + state.code + ' with players on your network, then press Start.'
       : 'Waiting for the host to start…';
     $('#btnLobbyStart').style.display = state.youAreHost ? '' : 'none';
+  }
+
+  // How many other humans the owner could place (drives whether to show the
+  // arrange prompt at all).
+  function otherHumanCount(state) {
+    if (!state || !state.players) return 0;
+    const ownerSeat = state.yourSeat != null ? state.yourSeat : 0;
+    return state.players.filter((p) => !p.isBot && p.seat !== ownerSeat).length;
+  }
+
+  // ---- Seat arrangement: the owner gives each player a seat number ----------
+  // Seat 1 is the owner; play proceeds Seat 1 → 2 → 3 → … around the table. Any
+  // seat left unassigned fills with a bot, so this works with bots at the table.
+  function buildSeatOrderForm(state) {
+    const form = $('#seatOrderForm');
+    form.innerHTML = '';
+    const maxSeats = state.maxSeats;
+    const ownerSeat = state.yourSeat != null ? state.yourSeat : 0;
+    const owner = state.players.find((p) => p.seat === ownerSeat) || state.players[0];
+    const others = state.players.filter((p) => p.seat !== ownerSeat && !p.isBot);
+
+    // Seat 1 — the owner (fixed).
+    const r1 = document.createElement('div');
+    r1.className = 'seat-order-row owner';
+    const n1 = document.createElement('span'); n1.className = 'so-num'; n1.textContent = '1';
+    const name1 = document.createElement('span'); name1.className = 'so-name';
+    name1.textContent = owner.name + ' 👑 (you)';
+    r1.appendChild(n1); r1.appendChild(name1);
+    form.appendChild(r1);
+
+    // One row per other human: pick that player's seat number (2..maxSeats).
+    // Picking a seat already taken by another player swaps the two.
+    others.forEach((p, k) => {
+      const row = document.createElement('div');
+      row.className = 'seat-order-row';
+      const label = document.createElement('span'); label.className = 'so-name'; label.textContent = p.name;
+      const pick = document.createElement('span'); pick.className = 'so-pick';
+      const tag = document.createElement('span'); tag.className = 'so-seatlabel'; tag.textContent = 'Seat';
+      const sel = document.createElement('select');
+      sel.className = 'so-select';
+      sel.dataset.human = String(p.seat);   // this player's CURRENT seat index
+      for (let idx = 1; idx < maxSeats; idx++) {   // indices 1..maxSeats-1 → "Seat 2".."Seat N"
+        const opt = document.createElement('option');
+        opt.value = String(idx); opt.textContent = 'Seat ' + (idx + 1);
+        sel.appendChild(opt);
+      }
+      sel.value = String(k + 1);             // default = current join order
+      sel.dataset.prev = sel.value;
+      sel.addEventListener('change', () => {
+        const selects = $$('#seatOrderForm .so-select');
+        const prev = sel.dataset.prev, now = sel.value;
+        const clash = selects.find((s) => s !== sel && s.value === now);
+        if (clash) { clash.value = prev; clash.dataset.prev = prev; }  // swap → seats stay unique
+        sel.dataset.prev = now;
+      });
+      pick.appendChild(tag); pick.appendChild(sel);
+      row.appendChild(label); row.appendChild(pick);
+      form.appendChild(row);
+    });
+
+    const botCount = maxSeats - 1 - others.length;
+    if (botCount > 0) {
+      const note = document.createElement('div');
+      note.className = 'seat-order-note';
+      note.textContent = botCount + ' remaining seat' + (botCount > 1 ? 's' : '') + ' will be filled with bots.';
+      form.appendChild(note);
+    }
+  }
+
+  // Read the chosen arrangement into a full-table layout and start with it.
+  function confirmSeatOrder() {
+    const state = lastLobbyState;
+    if (!state) { if (net) net.send({ t: 'start' }); return; }
+    const maxSeats = state.maxSeats;
+    const ownerSeat = state.yourSeat != null ? state.yourSeat : 0;
+    const layout = new Array(maxSeats).fill('bot');
+    layout[0] = ownerSeat;                                   // seat 1 = owner
+    let ok = true;
+    $$('#seatOrderForm .so-select').forEach((s) => {
+      const idx = Number(s.value);                           // chosen seat index
+      const human = Number(s.dataset.human);                 // that player's current seat index
+      if (idx < 1 || idx >= maxSeats || layout[idx] !== 'bot') ok = false;
+      layout[idx] = human;
+    });
+    const placed = layout.filter((v) => v !== 'bot');
+    if (!ok || new Set(placed).size !== placed.length || placed.length !== otherHumanCount(state) + 1) {
+      ui.toast('Each player needs a different seat'); return;
+    }
+    ui.closeOverlay('seatOrderOverlay');
+    if (net) net.send({ t: 'start', layout });
   }
 
   // Round-end controls. Single player: a plain "Next Round" button.
@@ -515,12 +631,23 @@
     wait.innerHTML = '<b>' + m.ready.length + ' / ' + m.humans.length + ' ready</b> &nbsp; ' + ticks;
   }
 
+  // Game-paused overlay (a player left). The host gets an "add a bot" shortcut
+  // so a game can never get permanently stuck waiting for a player who never comes.
+  function showPause(msg) {
+    const el = $('#pauseMsg'); if (el) el.textContent = msg;
+    const row = $('#pauseHostRow'); if (row) row.style.display = isHost ? '' : 'none';
+    ui.openOverlay('pauseOverlay');
+  }
+  function hidePause() { ui.closeOverlay('pauseOverlay'); }
+
   function leaveMultiplayer() {
     if (net) { net.send({ t: 'leave' }); }
     clearSession();                                     // don't auto-resume after leaving on purpose
     if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
     reconnectAttempts = 0;
     ui.setReconnecting(false);
+    hidePause();
+    ui.closeOverlay('vacancyOverlay');
     netEngine = null; isMultiplayer = false;
     document.body.classList.remove('mp');
     BQ.Sound.stopMusic();
@@ -788,8 +915,38 @@
     $('#btnCreate').addEventListener('click', () => { BQ.Sound.click(); createRoom(); });
     $('#btnJoin').addEventListener('click', () => { BQ.Sound.click(); joinRoom(); });
     $('#btnMpBack').addEventListener('click', () => { BQ.Sound.click(); ui.show('menu'); });
-    $('#btnLobbyStart').addEventListener('click', () => { BQ.Sound.click(); if (net) net.send({ t: 'start' }); });
+    $('#btnLobbyStart').addEventListener('click', () => {
+      BQ.Sound.click();
+      const st = lastLobbyState;
+      // Offer seat arrangement whenever there's at least one other player to
+      // place and a real choice of seats (3+ at the table, bots included).
+      // Otherwise there's nothing to arrange, so just start.
+      if (st && st.maxSeats >= 3 && otherHumanCount(st) >= 1) {
+        buildSeatOrderForm(st);
+        ui.openOverlay('seatOrderOverlay');
+      } else if (net) {
+        net.send({ t: 'start' });
+      }
+    });
+    $('#btnSeatOrderStart').addEventListener('click', () => { BQ.Sound.click(); confirmSeatOrder(); });
+    $('#btnSeatOrderCancel').addEventListener('click', () => { BQ.Sound.click(); ui.closeOverlay('seatOrderOverlay'); });
     $('#btnLobbyLeave').addEventListener('click', () => { BQ.Sound.click(); leaveMultiplayer(); });
+
+    // Host vacancy prompt (a player left mid-game)
+    $('#btnAddBot').addEventListener('click', () => {
+      BQ.Sound.click();
+      if (net) net.send({ t: 'resolveVacancy', choice: 'bot' });
+      ui.closeOverlay('vacancyOverlay');
+    });
+    $('#btnOpenSeat').addEventListener('click', () => {
+      BQ.Sound.click();
+      if (net) net.send({ t: 'resolveVacancy', choice: 'open' });
+      ui.closeOverlay('vacancyOverlay');   // pause overlay (waiting for a player) shows next
+    });
+    $('#btnPauseAddBot').addEventListener('click', () => {
+      BQ.Sound.click();
+      if (net) net.send({ t: 'resolveVacancy', choice: 'bot' });
+    });
     $('#mpCode').addEventListener('keydown', (e) => { if (e.key === 'Enter') joinRoom(); });
 
     // Setup
