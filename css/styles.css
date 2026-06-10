@@ -15,6 +15,7 @@
   --card-w: 92px;
   --card-h: 130px;
   --card-scale: 1;                 /* per-player size multiplier for YOUR hand */
+  --trick-scale: 1;                /* per-player size multiplier for the center (played) cards */
   --hand-overlap: 34px;            /* how much each card in your hand overlaps the prev */
   --fd-w: 60px;  --fd-h: 86px;     /* opponent face-down stack (north) */
   --fd-side-w: 50px; --fd-side-h: 72px;  /* opponent face-down stack (west/east) */
@@ -318,10 +319,16 @@ html, body {
   transform: translate(-50%, -50%);
   transition: transform var(--speed) ease, opacity var(--speed) ease;
 }
-.trick .slot.south { transform: translate(-50%, var(--trick-down)); }
-.trick .slot.north { transform: translate(-50%, calc(-1 * var(--trick-up))); }
-.trick .slot.west  { transform: translate(calc(-50% - var(--trick-h)), calc(-1 * var(--trick-side-v))); }
-.trick .slot.east  { transform: translate(calc(-50% + var(--trick-h)), calc(-1 * var(--trick-side-v))); }
+/* center cards honor the per-player "Center Cards" size (🎨 Appearance);
+   the slot offsets scale with them so bigger cards spread further apart */
+.trick .card {
+  width: calc(var(--card-w) * var(--trick-scale));
+  height: calc(var(--card-h) * var(--trick-scale));
+}
+.trick .slot.south { transform: translate(-50%, calc(var(--trick-down) * var(--trick-scale))); }
+.trick .slot.north { transform: translate(-50%, calc(-1 * var(--trick-up) * var(--trick-scale))); }
+.trick .slot.west  { transform: translate(calc(-50% - var(--trick-h) * var(--trick-scale)), calc(-1 * var(--trick-side-v) * var(--trick-scale))); }
+.trick .slot.east  { transform: translate(calc(-50% + var(--trick-h) * var(--trick-scale)), calc(-1 * var(--trick-side-v) * var(--trick-scale))); }
 
 /* a completed hand stays on the felt until the next lead; dim the losers... */
 .trick .slot.settled .card { filter: brightness(0.78) saturate(0.85); transition: filter 0.4s, box-shadow 0.4s; }
@@ -784,8 +791,8 @@ body[data-table="sand"], .table-sw[data-table="sand"] {
 .card.tpl .ci.br { bottom: 4px; right: 5px; transform: rotate(180deg); }
 .card.tpl .cs { font-size: calc(var(--card-w) * var(--card-scale) * 0.52); }
 /* in the trick area (not the scaled hand) the templates use the base size */
-.trick .card.tpl .ci { font-size: calc(var(--card-w) * 0.2); }
-.trick .card.tpl .cs { font-size: calc(var(--card-w) * 0.52); }
+.trick .card.tpl .ci { font-size: calc(var(--card-w) * var(--trick-scale) * 0.2); }
+.trick .card.tpl .cs { font-size: calc(var(--card-w) * var(--trick-scale) * 0.52); }
 .card.tpl.red { color: var(--crimson); }
 .card.tpl.black { color: #1c2530; }
 .card.tpl-contrast { background: linear-gradient(170deg, #1b202b, #131822); border-color: rgba(255,255,255,0.22); }

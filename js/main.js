@@ -532,6 +532,8 @@
     const p = BQ.Prefs.get();
     $('#prefScale').value = p.cardScale;
     $('#prefScaleVal').textContent = Math.round(p.cardScale * 100) + '%';
+    $('#prefTrickScale').value = p.trickScale;
+    $('#prefTrickScaleVal').textContent = Math.round(p.trickScale * 100) + '%';
     $('#prefPreSelect').checked = !!p.preSelect;
     $('#prefFx').checked = p.fx !== false;
     $('#prefAttacks').checked = p.attacks !== false;
@@ -757,6 +759,11 @@
       BQ.Prefs.set({ cardScale: v });
       $('#prefScaleVal').textContent = Math.round(v * 100) + '%';
       ui.layoutHumanHand();
+    });
+    $('#prefTrickScale').addEventListener('input', () => {
+      const v = parseFloat($('#prefTrickScale').value) || 1;
+      BQ.Prefs.set({ trickScale: v });
+      $('#prefTrickScaleVal').textContent = Math.round(v * 100) + '%';
     });
     $('#prefPreSelect').addEventListener('change', (e) => {
       BQ.Prefs.set({ preSelect: e.target.checked });

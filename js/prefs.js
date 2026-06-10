@@ -45,6 +45,7 @@
 
   const DEFAULTS = {
     cardScale: 1,        // 0.7 – 1.4 multiplier on your own hand
+    trickScale: 1,       // 0.7 – 1.6 multiplier on the played cards in the center
     table: 'classic',
     cardBack: 'crimson',
     cardFace: 'classic',
@@ -78,6 +79,7 @@
     body.dataset.back = prefs.cardBack;
     body.dataset.face = prefs.cardFace;
     document.documentElement.style.setProperty('--card-scale', prefs.cardScale);
+    document.documentElement.style.setProperty('--trick-scale', prefs.trickScale);
   }
 
   BQ.Prefs = {
