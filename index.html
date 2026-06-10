@@ -171,6 +171,42 @@
       </div>
     </div>
 
+    <!-- Game paused (a player left mid-game) — shown to everyone -->
+    <div class="overlay" id="pauseOverlay">
+      <div class="modal">
+        <h2>⏸ Game Paused</h2>
+        <p id="pauseMsg" style="color:#cfe6d6;margin:0.6rem 0 0.2rem">Waiting…</p>
+        <div class="close-row" id="pauseHostRow" style="display:none">
+          <button class="btn small" id="btnPauseAddBot">Add a Bot &amp; Continue</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Host prompt when a player leaves: add a bot, or wait for a new player -->
+    <div class="overlay" id="vacancyOverlay">
+      <div class="modal">
+        <h2>A player left</h2>
+        <p id="vacancyMsg" style="color:#cfe6d6;margin:0.6rem 0 1rem">A seat is now empty.</p>
+        <div class="close-row">
+          <button class="btn small" id="btnAddBot">Add a Bot</button>
+          <button class="btn ghost small" id="btnOpenSeat">Wait for a new player</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Host seat arrangement (shown when the owner taps Start Game) -->
+    <div class="overlay" id="seatOrderOverlay">
+      <div class="modal">
+        <h2>Arrange the Table</h2>
+        <p style="color:#cfe6d6;margin:0.4rem 0 0.9rem">Seat 1 is you. Give each player a seat number — play goes Seat&nbsp;1 → 2 → 3 → … (each seat to the right of the one before). Any seat you leave empty fills with a bot.</p>
+        <div id="seatOrderForm" class="seat-order-grid"></div>
+        <div class="close-row">
+          <button class="btn ghost small" id="btnSeatOrderCancel">Cancel</button>
+          <button class="btn small" id="btnSeatOrderStart">Start Game</button>
+        </div>
+      </div>
+    </div>
+
     <div class="hand-result" id="handResult"></div>
     <div id="fx"></div>
   </div>
