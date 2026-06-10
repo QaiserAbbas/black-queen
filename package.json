@@ -4,7 +4,9 @@
   "description": "Black Queen — a trick-taking card game with single-player and LAN/online multiplayer. Zero dependencies.",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "tunnel": "cloudflared tunnel --url http://localhost:4003",
+    "share": "node server.js & SRV=$!; trap 'kill $SRV' EXIT; sleep 1; cloudflared tunnel --url http://localhost:4003"
   },
   "engines": {
     "node": ">=14"

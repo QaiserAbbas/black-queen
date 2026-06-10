@@ -307,6 +307,9 @@
       const span = window.innerWidth * 0.94;
       let step = n > 1 ? (span - cardW) / (n - 1) : 0;     // gap between card lefts
       step = Math.min(step, cardW * 0.63);                 // cap overlap → keep an elegant fan on wide screens
+      // Scroll mode: never squeeze below half a card visible — the hand
+      // overflows sideways and scrolls instead (body.hand-scroll CSS).
+      if (BQ.Prefs && BQ.Prefs.get().handScroll) step = Math.max(step, cardW * 0.52);
       cards.forEach((el, i) => {
         el.style.marginLeft = i === 0 ? '0px' : (step - cardW) + 'px';
       });

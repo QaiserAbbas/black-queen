@@ -44,12 +44,14 @@
   ];
 
   const DEFAULTS = {
-    cardScale: 1,        // 0.7 – 1.4 multiplier on your own hand
+    cardScale: 1,        // 0.7 – 2.0 multiplier on your own hand
+    handScroll: true,    // big hands scroll horizontally instead of over-squeezing
     trickScale: 1,       // 0.7 – 1.6 multiplier on the played cards in the center
     table: 'classic',
     cardBack: 'crimson',
     cardFace: 'classic',
     preSelect: false,    // allow staging a card before your turn
+    mobileMode: 'auto',  // 'auto' | 'on' | 'off' — thumb-friendly mobile UI
     fx: true,            // big cinematic effects (queen takeover, banners, rains)
     attacks: true,       // show/hear attack taunts (lion, bomb…) — mute per player
     music: 'lounge',     // ambient music style (see BQ.Sound.MUSIC_TRACKS)
@@ -80,6 +82,7 @@
     body.dataset.face = prefs.cardFace;
     document.documentElement.style.setProperty('--card-scale', prefs.cardScale);
     document.documentElement.style.setProperty('--trick-scale', prefs.trickScale);
+    body.classList.toggle('hand-scroll', !!prefs.handScroll);
   }
 
   BQ.Prefs = {

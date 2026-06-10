@@ -133,6 +133,20 @@
 
       <!-- quick attack dock: 1 per move, play a card to recharge -->
       <div class="attack-dock" id="attackDock"></div>
+
+      <!-- hand zoom + rotate controls (bottom-left) -->
+      <div class="hand-zoom" id="handZoom">
+        <button type="button" id="zoomOut" title="Smaller cards">−</button>
+        <button type="button" id="zoomIn" title="Bigger cards">+</button>
+        <button type="button" id="btnRotate" title="Rotate screen">⟳</button>
+      </div>
+
+      <!-- mobile mode: thumb-zone action bar (emotes · attacks · menu) -->
+      <div class="mobile-bar" id="mobileBar">
+        <button class="mbar-btn" id="btnMobileEmote" title="Emotes &amp; messages">💬</button>
+        <div class="mbar-attacks" id="mbarAttacks"></div>
+        <button class="mbar-btn" id="btnMobileMenu" title="Menu">☰</button>
+      </div>
     </section>
 
     <!-- ===================== Overlays ===================== -->
@@ -190,7 +204,7 @@
 
         <h3>Card Size (your hand)</h3>
         <div class="scale-row">
-          <input type="range" id="prefScale" min="0.7" max="1.4" step="0.05" />
+          <input type="range" id="prefScale" min="0.7" max="2" step="0.05" />
           <span id="prefScaleVal" style="font-weight:700;color:var(--gold-bright);min-width:48px;text-align:right">100%</span>
         </div>
 
@@ -212,10 +226,17 @@
         <h3>Music</h3>
         <div class="swatch-grid faces" id="prefMusic"></div>
 
+        <h3>Mobile Mode</h3>
+        <div class="swatch-grid faces" id="prefMobile"></div>
+
         <h3>Play Helpers</h3>
         <div class="set-row check">
           <input type="checkbox" id="prefPreSelect" />
           <label for="prefPreSelect">Pre-select a card before your turn (it plays automatically)</label>
+        </div>
+        <div class="set-row check">
+          <input type="checkbox" id="prefHandScroll" />
+          <label for="prefHandScroll">Scroll big hands sideways (instead of squeezing cards together)</label>
         </div>
         <div class="set-row check">
           <input type="checkbox" id="prefFx" />
@@ -230,6 +251,23 @@
           <button class="btn ghost small" id="btnLookReset">Reset</button>
           <button class="btn small" data-close="lookOverlay">Done</button>
         </div>
+      </div>
+    </div>
+
+    <!-- Mobile menu (bottom sheet) — proxies the toolbar actions -->
+    <div class="overlay" id="mobileMenuOverlay">
+      <div class="modal mobile-menu">
+        <h2>☰ Menu</h2>
+        <div class="mm-grid">
+          <button type="button" data-proxy="btnLook">🎨 Appearance</button>
+          <button type="button" data-proxy="btnScores">📊 Scoreboard</button>
+          <button type="button" data-proxy="btnSettings">⚙️ Settings</button>
+          <button type="button" data-proxy="btnMusic">🎵 Music on/off</button>
+          <button type="button" data-proxy="btnSound">🔊 Sound on/off</button>
+          <button type="button" data-proxy="btnRotate">⟳ Rotate screen</button>
+          <button type="button" data-proxy="btnQuit" class="danger">✕ Quit game</button>
+        </div>
+        <div class="close-row"><button class="btn small" data-close="mobileMenuOverlay">Close</button></div>
       </div>
     </div>
 

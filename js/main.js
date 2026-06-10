@@ -535,6 +535,7 @@
     $('#prefTrickScale').value = p.trickScale;
     $('#prefTrickScaleVal').textContent = Math.round(p.trickScale * 100) + '%';
     $('#prefPreSelect').checked = !!p.preSelect;
+    $('#prefHandScroll').checked = p.handScroll !== false;
     $('#prefFx').checked = p.fx !== false;
     $('#prefAttacks').checked = p.attacks !== false;
 
@@ -577,6 +578,22 @@
         buildAppearanceForm();
       });
       faces.appendChild(b);
+    });
+
+    const mob = $('#prefMobile');
+    mob.innerHTML = '';
+    [['auto', 'Auto (detect)'], ['on', 'Always on'], ['off', 'Off']].forEach(([id, label]) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'swatch face-sw' + ((p.mobileMode || 'auto') === id ? ' sel' : '');
+      b.textContent = label;
+      b.addEventListener('click', () => {
+        BQ.Sound.click();
+        BQ.Prefs.set({ mobileMode: id });
+        applyMobileMode();
+        buildAppearanceForm();
+      });
+      mob.appendChild(b);
     });
 
     const music = $('#prefMusic');
@@ -625,6 +642,49 @@
       ui.toast('Music muted — sound effects stay on');
     }
     updateMusicBtn();
+  }
+
+  /* ---- Mobile mode ---------------------------------------------------------
+   * 'auto' turns it on for touch devices / narrow screens; 'on'/'off' force it.
+   * Mobile mode = thumb-zone bottom bar (emotes · attacks · menu), collapsed
+   * toolbar, bottom-sheet modals, bigger touch targets (all CSS via body.mobile).
+   */
+  function mobileAuto() {
+    const coarse = window.matchMedia && matchMedia('(pointer: coarse)').matches;
+    return (coarse && Math.min(innerWidth, innerHeight) < 860) || innerWidth < 700;
+  }
+
+  function applyMobileMode() {
+    const mode = BQ.Prefs.get().mobileMode || 'auto';
+    const on = mode === 'on' || (mode === 'auto' && mobileAuto());
+    document.body.classList.toggle('mobile', on);
+    // the attack dock lives in the bottom bar on mobile, floats on desktop
+    const dock = $('#attackDock');
+    const home = on ? $('#mbarAttacks') : $('#game');
+    if (dock && home && dock.parentElement !== home) home.appendChild(dock);
+  }
+
+  /* ---- hand zoom (+ / −) and screen rotation ------------------------------ */
+  function nudgeCardScale(delta) {
+    const v = Math.round(Math.max(0.7, Math.min(2, BQ.Prefs.get().cardScale + delta)) * 100) / 100;
+    BQ.Prefs.set({ cardScale: v });
+    ui.layoutHumanHand();
+    ui.toast('Cards ' + Math.round(v * 100) + '%');
+  }
+
+  // Lock the screen the other way round (needs fullscreen on most browsers).
+  // Tapping again flips back; where the API isn't available we say so.
+  async function toggleRotate() {
+    try {
+      if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
+        await document.documentElement.requestFullscreen();
+      }
+      const portrait = (screen.orientation && screen.orientation.type || 'portrait').indexOf('portrait') === 0;
+      await screen.orientation.lock(portrait ? 'landscape' : 'portrait');
+      ui.toast(portrait ? 'Landscape — tap ⟳ to go back' : 'Portrait — tap ⟳ to go back');
+    } catch (_) {
+      ui.toast('Rotation not supported in this browser — turn your device instead');
+    }
   }
 
   /* ---- Emotes & quick messages (multiplayer) ------------------------------ */
@@ -769,6 +829,13 @@
       BQ.Prefs.set({ preSelect: e.target.checked });
       ui.toast(e.target.checked ? 'Pre-select on — tap a card before your turn' : 'Pre-select off');
     });
+    $('#prefHandScroll').addEventListener('change', (e) => {
+      BQ.Prefs.set({ handScroll: e.target.checked });
+      ui.layoutHumanHand();
+    });
+    $('#zoomIn').addEventListener('click', () => { BQ.Sound.click(); nudgeCardScale(+0.15); });
+    $('#zoomOut').addEventListener('click', () => { BQ.Sound.click(); nudgeCardScale(-0.15); });
+    $('#btnRotate').addEventListener('click', () => { BQ.Sound.click(); toggleRotate(); });
     $('#prefFx').addEventListener('change', (e) => {
       BQ.Prefs.set({ fx: e.target.checked });
       if (e.target.checked) { BQ.FX.floatEmoji('🎉', 4); BQ.Sound.pop(); }
@@ -785,6 +852,26 @@
     });
     setupEmotePanel();
     setupAttackRow();
+
+    // Mobile bottom bar + menu sheet
+    $('#btnMobileEmote').addEventListener('click', () => {
+      BQ.Sound.click();
+      $('#emotePanel').classList.toggle('show');
+    });
+    $('#btnMobileMenu').addEventListener('click', () => {
+      BQ.Sound.click();
+      ui.openOverlay('mobileMenuOverlay');
+    });
+    // menu sheet buttons proxy the (hidden) toolbar buttons
+    document.querySelectorAll('#mobileMenuOverlay [data-proxy]').forEach((b) => {
+      b.addEventListener('click', () => {
+        ui.closeOverlay('mobileMenuOverlay');
+        const target = $('#' + b.dataset.proxy);
+        if (target) target.click();
+      });
+    });
+    applyMobileMode();
+    window.addEventListener('resize', applyMobileMode);
     $('#btnSettings').addEventListener('click', () => { BQ.Sound.click(); buildSettingsForm(); ui.openOverlay('settingsOverlay'); });
     $('#btnMusic').addEventListener('click', () => { BQ.Sound.click(); toggleMusic(); });
     $('#btnSound').addEventListener('click', () => {

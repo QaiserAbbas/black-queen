@@ -1218,3 +1218,103 @@ body:not(.mp) .mp-only { display: none !important; }
 
 /* 🛡️ tag: that player muted attack taunts */
 .shield-tag { font-size: 0.78em; opacity: 0.9; cursor: default; }
+
+/* =============================================================================
+ * MOBILE MODE (body.mobile) — thumb-zone bottom bar, collapsed toolbar,
+ * bottom-sheet modals, bigger touch targets. Toggle: 🎨 Appearance.
+ * ===========================================================================*/
+.mobile-bar { display: none; }
+body.mobile #game .mobile-bar {
+  display: flex; position: absolute; left: 0; right: 0; bottom: 0;
+  align-items: center; gap: 0.45rem; z-index: 70;
+  padding: 0.4rem max(10px, env(safe-area-inset-right))
+           calc(0.4rem + env(safe-area-inset-bottom))
+           max(10px, env(safe-area-inset-left));
+  background: linear-gradient(180deg, rgba(4,16,10,0), rgba(4,16,10,0.88) 40%);
+}
+.mbar-btn {
+  width: 48px; height: 44px; flex: 0 0 auto;
+  font-size: 1.25rem; color: #fff; cursor: pointer;
+  background: rgba(0,0,0,0.5); border: 1.5px solid rgba(255,255,255,0.2);
+  border-radius: 13px;
+}
+.mbar-btn:active { background: rgba(233,196,106,0.3); }
+.mbar-attacks { flex: 1; display: flex; justify-content: center; min-width: 0; }
+.mbar-attacks .attack-dock { position: static; display: flex; gap: 0.3rem; }
+body.mobile .attack-dock .attack-btn { width: 44px; height: 44px; padding: 0; font-size: 1.2rem; }
+body.mobile .attack-dock .attack-btn small { display: none; }
+
+/* collapse the desktop toolbar cluster — everything lives in the ☰ sheet */
+body.mobile #game .toolbar .right { display: none; }
+
+/* keep the hand clear of the bottom bar */
+body.mobile .seat.south { padding-bottom: calc(env(safe-area-inset-bottom) + 58px); }
+
+/* stronger, always-visible playable lift for fingers */
+body.mobile .hand.south .card.playable { transform: translateY(-16px); }
+body.mobile .hand.south .card.staged { transform: translateY(-24px); }
+
+/* modals become bottom sheets */
+body.mobile .overlay { align-items: flex-end; }
+body.mobile .modal {
+  width: 100%; max-width: 100%; max-height: 84vh;
+  border-radius: 22px 22px 0 0;
+  border-left: none; border-right: none; border-bottom: none;
+  padding-bottom: calc(1.2rem + env(safe-area-inset-bottom));
+  animation: sheetUp 0.28s cubic-bezier(.2, .9, .3, 1);
+}
+@keyframes sheetUp {
+  from { transform: translateY(40%); opacity: 0.4; }
+  to   { transform: none; opacity: 1; }
+}
+
+/* emote panel docks above the bottom bar, full width */
+body.mobile .emote-panel {
+  left: 0; right: 0; top: auto; width: auto;
+  bottom: calc(58px + env(safe-area-inset-bottom));
+  border-radius: 16px 16px 0 0; border-left: none; border-right: none;
+}
+
+/* ☰ menu sheet */
+.mm-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; }
+.mm-grid button {
+  font: inherit; font-weight: 700; font-size: 1rem; color: #f4f4ef;
+  background: rgba(255,255,255,0.07); border: 1.5px solid rgba(255,255,255,0.18);
+  border-radius: 14px; padding: 0.95rem 0.6rem; cursor: pointer;
+  transition: background 0.12s;
+}
+.mm-grid button:active { background: rgba(233,196,106,0.25); }
+.mm-grid button.danger { border-color: rgba(192,57,43,0.6); color: #ffc9c0; }
+
+/* =============================================================================
+ * HAND ZOOM + SCROLL + ROTATE
+ * ===========================================================================*/
+/* scroll mode: a zoomed hand overflows sideways and scrolls instead of
+   squeezing cards into slivers (min half a card always visible) */
+body.hand-scroll .hand.south {
+  max-width: 96vw;
+  overflow-x: auto; overflow-y: hidden;
+  padding: 36px 10px 8px;            /* headroom for the playable/staged lift */
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(233,196,106,0.5) transparent;
+}
+body.hand-scroll .hand.south::-webkit-scrollbar { height: 5px; }
+body.hand-scroll .hand.south::-webkit-scrollbar-thumb { background: rgba(233,196,106,0.45); border-radius: 4px; }
+
+/* zoom / rotate cluster — bottom-left of the table */
+.hand-zoom {
+  position: absolute;
+  left: max(10px, env(safe-area-inset-left));
+  bottom: calc(env(safe-area-inset-bottom) + 10px);
+  display: flex; flex-direction: column; gap: 0.35rem; z-index: 60;
+}
+.hand-zoom button {
+  width: 42px; height: 40px; cursor: pointer;
+  font-size: 1.25rem; font-weight: 800; color: #fff; line-height: 1;
+  background: rgba(0,0,0,0.5); border: 1.5px solid rgba(255,255,255,0.2);
+  border-radius: 12px; backdrop-filter: blur(3px);
+}
+.hand-zoom button:active { background: rgba(233,196,106,0.3); }
+/* in mobile mode it sits above the bottom bar */
+body.mobile .hand-zoom { bottom: calc(env(safe-area-inset-bottom) + 64px); }
