@@ -12,3 +12,4 @@ Thumbs.db
 .playwright-mcp/
 *.log
 *.png
+.history

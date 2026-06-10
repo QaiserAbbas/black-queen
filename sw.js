@@ -12,7 +12,7 @@
 
 'use strict';
 
-const CACHE = 'bq-v2';
+const CACHE = 'bq-v3';
 const CORE = [
   '/',
   '/index.html',
@@ -51,12 +51,16 @@ self.addEventListener('fetch', (e) => {
 
   if ((url.pathname.startsWith('/cards/') || url.pathname.startsWith('/sounds/')) &&
       !url.pathname.endsWith('manifest.json')) {
-    // immutable deck art + sound effects: cache-first (manifest stays fresh)
+    // immutable deck art + sound effects: cache-first (manifest stays fresh).
+    // Only OK responses are cached — caching a 404/500 here would poison the
+    // cache and serve a broken card face forever.
     e.respondWith(
       caches.match(e.request).then((hit) =>
         hit || fetch(e.request).then((res) => {
-          const copy = res.clone();
-          caches.open(CACHE).then((c) => c.put(e.request, copy));
+          if (res.ok) {
+            const copy = res.clone();
+            caches.open(CACHE).then((c) => c.put(e.request, copy));
+          }
           return res;
         })
       )
@@ -68,8 +72,10 @@ self.addEventListener('fetch', (e) => {
   e.respondWith(
     fetch(e.request)
       .then((res) => {
-        const copy = res.clone();
-        caches.open(CACHE).then((c) => c.put(e.request, copy));
+        if (res.ok) {
+          const copy = res.clone();
+          caches.open(CACHE).then((c) => c.put(e.request, copy));
+        }
         return res;
       })
       .catch(() => caches.match(e.request))

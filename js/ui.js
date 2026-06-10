@@ -20,6 +20,34 @@
     return (RANK_FILE[card.rank] || card.rank) + '_of_' + card.suit + '.svg';
   }
 
+  // Card images that failed to load (missing on the server, poisoned cache,
+  // offline before they were cached) — those cards render the text template
+  // instead, so a face is never a blank white rectangle.
+  const FACE_FAILED = new Set();
+
+  function applyTextFace(el, card, tpl) {
+    el.style.backgroundImage = '';
+    el.classList.add('tpl', 'tpl-' + (tpl || 'simple'));
+    el.innerHTML =
+      '<span class="ci tl">' + card.rank + '<i>' + card.symbol + '</i></span>' +
+      '<span class="cs">' + card.symbol + '</span>' +
+      '<span class="ci br">' + card.rank + '<i>' + card.symbol + '</i></span>';
+  }
+
+  function applyClassicFace(el, card) {
+    const file = 'cards/' + cardFile(card);
+    if (FACE_FAILED.has(file)) return applyTextFace(el, card);
+    el.style.backgroundImage = "url('" + file + "')";
+    // Probe the image (served from the browser's cache when it's fine) and
+    // swap this card to the text template the moment a load fails.
+    const probe = new Image();
+    probe.onerror = () => {
+      FACE_FAILED.add(file);
+      applyTextFace(el, card);
+    };
+    probe.src = file;
+  }
+
   class UI {
     constructor() {
       this.engine = null;
@@ -150,15 +178,12 @@
       if (card.rank === q.rank && card.suit === q.suit) el.classList.add('is-queen');
       const face = (BQ.Prefs && BQ.Prefs.get().cardFace) || 'classic';
       if (face === 'classic') {
-        // The face is the real vector card image from /cards.
-        el.style.backgroundImage = "url('cards/" + cardFile(card) + "')";
+        // The face is the real vector card image from /cards — with the text
+        // template as an automatic fallback if the image can't load.
+        applyClassicFace(el, card);
       } else {
         // Text-based template (simple / high-contrast) — indices + center pip.
-        el.classList.add('tpl', 'tpl-' + face);
-        el.innerHTML =
-          '<span class="ci tl">' + card.rank + '<i>' + card.symbol + '</i></span>' +
-          '<span class="cs">' + card.symbol + '</span>' +
-          '<span class="ci br">' + card.rank + '<i>' + card.symbol + '</i></span>';
+        applyTextFace(el, card, face);
       }
       return el;
     }
@@ -303,13 +328,24 @@
       const scale = parseFloat(docStyle.getPropertyValue('--card-scale')) || 1;
       const cardW = (parseFloat(docStyle.getPropertyValue('--card-w')) || 90) * scale;
       // The hand centers on screen and may overflow its column into the empty
-      // side cells, so it can span almost the full viewport.
-      const span = window.innerWidth * 0.94;
+      // side cells, so it can span almost the full viewport — but never wider
+      // than its own box: in scroll mode the strip is capped (max-width 96vw,
+      // border-box) and carries its own padding, so spreading across a plain
+      // 94vw overshot the box on narrow screens and left a few px of pointless
+      // overflow-scroll (last card clipped, stray scrollbar).
+      const wrapStyle = getComputedStyle(wrap);
+      const pad = (parseFloat(wrapStyle.paddingLeft) || 0) + (parseFloat(wrapStyle.paddingRight) || 0);
+      const cap = parseFloat(wrapStyle.maxWidth);          // NaN when 'none'
+      let span = window.innerWidth * 0.94;
+      if (!isNaN(cap)) span = Math.min(span, cap);
+      span -= pad;
       let step = n > 1 ? (span - cardW) / (n - 1) : 0;     // gap between card lefts
       step = Math.min(step, cardW * 0.63);                 // cap overlap → keep an elegant fan on wide screens
-      // Scroll mode: never squeeze below half a card visible — the hand
-      // overflows sideways and scrolls instead (body.hand-scroll CSS).
-      if (BQ.Prefs && BQ.Prefs.get().handScroll) step = Math.max(step, cardW * 0.52);
+      // Scroll mode: when cards would squeeze into slivers, overflow sideways
+      // and scroll with half a card visible instead (body.hand-scroll CSS).
+      // Only when genuinely cramped (under 40% of a card visible) — for a
+      // near-fit, fitting beats a sliver of scrollbar.
+      if (BQ.Prefs && BQ.Prefs.get().handScroll && step < cardW * 0.4) step = cardW * 0.52;
       cards.forEach((el, i) => {
         el.style.marginLeft = i === 0 ? '0px' : (step - cardW) + 'px';
       });

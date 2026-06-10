@@ -1316,7 +1316,7 @@ body.mobile .emote-panel {
    squeezing cards into slivers (min half a card always visible) */
 body.hand-scroll .hand.south {
   max-width: 96vw;
-  overflow-x: auto; overflow-y: hidden;
+  /* overflow-x: auto; overflow-y: hidden; */
   padding: 36px 10px 8px;            /* headroom for the playable/staged lift */
   -webkit-overflow-scrolling: touch;
   scrollbar-width: thin;
