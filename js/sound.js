@@ -56,6 +56,22 @@
     shuffle: 'sounds/freesound_community-shuffle-cards-46455.mp3',
     place: 'sounds/oxidvideos-placing-playing-card-522514.mp3',
     punch: 'sounds/freesound_community-hard-punch-90179.mp3',
+    roar: 'sounds/dragon-studio-cartoon-lion-roar-487672.mp3',
+    pop: 'sounds/dragon-studio-bubble-gum-popping-467465.mp3',
+    laugh: 'sounds/poorartistt-joyful-female-laughing-sound-no-copyright-sfx-547158.mp3',
+    // Optional overrides — drop a matching file into sounds/ and it replaces
+    // the synthesized version automatically (missing files are fine).
+    click: 'sounds/click.mp3',
+    deal: 'sounds/deal.mp3',
+    trickWin: 'sounds/trick-win.mp3',
+    roundEnd: 'sounds/round-end.mp3',
+    win: 'sounds/eaglaxle-gaming-victory-464016.mp3',
+    lose: 'sounds/ribhavagrawal-you-loseheavy-echoed-voice-230555.mp3',
+    error: 'sounds/error.mp3',
+    dragon: 'sounds/dragon-studio-dragon-growl-7-364612.mp3',
+    bomb: 'sounds/bomb.mp3',
+    ghost: 'sounds/dragon-studio-i-see-you-creepy-ghost-whisper-401711.mp3',
+    skull: 'sounds/skull.mp3',
   };
   const sampleBufs = {};
   let samplesRequested = false;
@@ -65,13 +81,24 @@
     samplesRequested = true;
     const c = ensure();
     if (!c) return;
-    Object.keys(SAMPLE_URLS).forEach((key) => {
+    const fetchOne = (key) => {
       fetch(SAMPLE_URLS[key])
         .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error('http ' + r.status))))
         .then((ab) => c.decodeAudioData(ab))
         .then((buf) => { sampleBufs[key] = buf; })
         .catch(() => { /* keep synth fallback */ });
-    });
+    };
+    // Ask the server which files exist, fetch only those (no 404 noise for
+    // optional overrides). On other hosts fall back to the core three.
+    fetch('sounds/manifest.json')
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error('no manifest'))))
+      .then((files) => {
+        const have = new Set(files);
+        Object.keys(SAMPLE_URLS).forEach((key) => {
+          if (have.has(SAMPLE_URLS[key].split('/').pop())) fetchOne(key);
+        });
+      })
+      .catch(() => { ['shuffle', 'place', 'punch'].forEach(fetchOne); });
   }
 
   // Play a loaded sample. Returns false when unavailable → caller synthesizes.
@@ -186,10 +213,19 @@
       Object.keys(map).forEach((k) => this.setVolume(k, map[k]));
     },
 
-    click() { tone(660, 0.06, 'square', 0.12); },
-    hover() { tone(880, 0.03, 'sine', 0.05); },
+    // Soft felt-table "tick" instead of a raw square buzz.
+    click() {
+      if (sample('click', 0.6)) return;
+      noise(0.025, 0.08, 2400, undefined, 'bandpass');
+      glide(900, 640, 0.06, 'sine', 0.12);
+    },
+    hover() { glide(1100, 900, 0.04, 'sine', 0.05); },
 
-    deal() { noise(0.12, 0.18, 1600); tone(420, 0.05, 'sine', 0.08); },
+    deal() {
+      if (sample('deal', 0.8)) return;
+      noise(0.1, 0.16, 1800, undefined, 'bandpass');
+      glide(500, 380, 0.06, 'sine', 0.07);
+    },
     play() {
       if (sample('place', 0.9)) return;
       noise(0.10, 0.20, 900); tone(300, 0.06, 'triangle', 0.10);
@@ -214,42 +250,62 @@
       for (let i = 0; i < 8; i++) noise(0.07, 0.12, 1400, c.currentTime + i * 0.05);
     },
 
+    // Rising chime with a soft octave shimmer + bell tail.
     trickWin() {
+      if (sample('trickWin', 0.8)) return;
       const c = ensure(); if (!c) return;
       const t = c.currentTime;
-      tone(523, 0.10, 'sine', 0.2, t);
-      tone(659, 0.10, 'sine', 0.2, t + 0.08);
-      tone(784, 0.16, 'sine', 0.22, t + 0.16);
+      [[523, 0], [659, 0.07], [784, 0.14]].forEach(([f, d]) => {
+        tone(f, 0.13, 'sine', 0.16, t + d);
+        tone(f * 2, 0.1, 'sine', 0.05, t + d);
+      });
+      bell(1568, 0.8, 0.1, t + 0.2);
     },
 
+    // Rounder "uh-oh": triangle slides with a felt thump (no buzzy saws).
     penalty() {
       const c = ensure(); if (!c) return;
       const t = c.currentTime;
-      tone(196, 0.20, 'sawtooth', 0.18, t);
-      tone(165, 0.28, 'sawtooth', 0.18, t + 0.12);
+      glide(220, 150, 0.25, 'triangle', 0.2, t);
+      glide(165, 110, 0.3, 'triangle', 0.16, t + 0.1);
+      noise(0.15, 0.12, 300, t, 'lowpass');
     },
 
     roundEnd() {
+      if (sample('roundEnd', 0.8)) return;
       const c = ensure(); if (!c) return;
       const t = c.currentTime;
-      [523, 587, 659, 784].forEach((f, i) => tone(f, 0.18, 'triangle', 0.16, t + i * 0.09));
+      [523, 587, 659, 784].forEach((f, i) => tone(f, 0.16, 'triangle', 0.14, t + i * 0.09));
+      bell(1047, 1.2, 0.12, t + 0.36);
     },
 
     win() {
+      if (sample('win', 0.85)) return;
       const c = ensure(); if (!c) return;
       const t = c.currentTime;
-      [523, 659, 784, 1047, 1319].forEach((f, i) =>
-        tone(f, 0.35, 'sine', 0.22, t + i * 0.12));
+      [523, 659, 784, 1047, 1319].forEach((f, i) => {
+        tone(f, 0.32, 'sine', 0.18, t + i * 0.11);
+        tone(f * 1.005, 0.32, 'triangle', 0.06, t + i * 0.11);   // gentle detune = warmth
+      });
+      bell(2093, 1.5, 0.1, t + 0.55);
+      noise(0.4, 0.05, 6000, t + 0.4);
     },
 
     lose() {
+      if (sample('lose', 0.85)) return;
       const c = ensure(); if (!c) return;
       const t = c.currentTime;
-      [392, 349, 311, 262].forEach((f, i) =>
-        tone(f, 0.30, 'sawtooth', 0.16, t + i * 0.14));
+      [392, 349, 311, 262].forEach((f, i) => {
+        tone(f, 0.28, 'triangle', 0.15, t + i * 0.13);
+        tone(f / 2, 0.3, 'sine', 0.08, t + i * 0.13);            // sad sub layer
+      });
     },
 
-    error() { tone(150, 0.18, 'square', 0.18); },
+    error() {
+      if (sample('error', 0.7)) return;
+      glide(300, 170, 0.16, 'triangle', 0.18);
+      noise(0.06, 0.08, 500, undefined, 'lowpass');
+    },
 
     /* ---- FX-engine companions --------------------------------------------- */
 
@@ -261,7 +317,10 @@
     },
 
     // Little pop for floating emoji reactions.
-    pop() { glide(320, 900, 0.09, 'sine', 0.16); },
+    pop() {
+      if (sample('pop', 0.7)) return;
+      glide(320, 900, 0.09, 'sine', 0.16);
+    },
 
     // Rising sparkle for clean wins / nice moments.
     sparkle() {
@@ -289,7 +348,8 @@
       glide(70, 32, 1.2, 'sine', 0.3, t);            // sub drop
     },
 
-    // The full Black Queen sting: thunder + dissonant stab + tolling bell.
+    // The full Black Queen sting: thunder + dissonant stab + tolling bell,
+    // topped with a mocking laugh (sounds/…laughing….mp3) if available.
     queenDoom() {
       const c = ensure(); if (!c) return;
       const t = c.currentTime;
@@ -299,6 +359,54 @@
       tone(330, 0.6, 'sawtooth', 0.12, t + 0.28);
       bell(880, 1.6, 0.22, t + 0.55);                // the toll
       bell(440, 2.0, 0.18, t + 1.05);
+      setTimeout(() => {
+        activeBus = busNodes.fx || null;             // re-route: timeout escapes the bus wrapper
+        try { sample('laugh', 0.8); } finally { activeBus = null; }
+      }, 500);
+    },
+
+    // Lion roar — victory growl. Real roar.mp3 if present, synth otherwise.
+    roar() {
+      if (sample('roar', 0.9)) return;
+      const c = ensure(); if (!c) return;
+      const t = c.currentTime;
+      glide(160, 45, 0.8, 'sawtooth', 0.28, t);
+      glide(110, 38, 0.9, 'sawtooth', 0.18, t + 0.08);
+      noise(0.7, 0.35, 300, t, 'lowpass');
+    },
+
+    // Attack-taunt sounds (lion roar, dragon fire, bomb, ghost, doom).
+    // Each tries a real recording first (sounds/<kind>.mp3), then synthesizes.
+    attack(kind) {
+      const c = ensure(); if (!c) return;
+      const t = c.currentTime;
+      if (kind === 'lion') {
+        this.roar();
+      } else if (kind === 'skull') {                  // doom toll + mocking laugh
+        if (!sample('skull', 0.9)) {
+          noise(1.0, 0.3, 200, t, 'lowpass');
+          bell(440, 1.6, 0.2, t + 0.15);
+          bell(220, 2.0, 0.18, t + 0.7);
+        }
+        setTimeout(() => {
+          activeBus = busNodes.fx || null;            // re-route: timeout escapes the bus wrapper
+          try { sample('laugh', 0.8); } finally { activeBus = null; }
+        }, 350);
+      } else if (sample(kind, 0.9)) {
+        return;
+      } else if (kind === 'dragon') {                 // wingbeat + fire crackle
+        this.whoosh();
+        for (let i = 0; i < 6; i++) noise(0.1, 0.16, 2400, t + 0.25 + i * 0.16, 'bandpass');
+        glide(90, 50, 1.2, 'sawtooth', 0.12, t + 0.2);
+      } else if (kind === 'bomb') {                   // whistle down… BOOM
+        glide(1400, 300, 0.85, 'sine', 0.12, t);
+        noise(0.9, 0.55, 220, t + 0.9, 'lowpass');
+        glide(120, 30, 0.8, 'sine', 0.35, t + 0.9);
+      } else if (kind === 'ghost') {                  // wailing slide, eerie shimmer
+        glide(700, 160, 1.6, 'sine', 0.1, t);
+        glide(710, 175, 1.6, 'sine', 0.08, t + 0.12);
+        noise(1.2, 0.05, 5000, t + 0.2);
+      }
     },
 
     // Trophy fanfare on top of win() for game over.
@@ -508,6 +616,7 @@
     punch: 'punch',
     trickWin: 'fx', penalty: 'fx', roundEnd: 'fx', win: 'fx', lose: 'fx',
     whoosh: 'fx', sparkle: 'fx', heartHit: 'fx', thunder: 'fx', queenDoom: 'fx', fanfare: 'fx',
+    attack: 'fx', roar: 'fx',
   };
   Object.keys(BUS_OF).forEach((name) => {
     const orig = Sound[name];

@@ -50,6 +50,7 @@
     cardFace: 'classic',
     preSelect: false,    // allow staging a card before your turn
     fx: true,            // big cinematic effects (queen takeover, banners, rains)
+    attacks: true,       // show/hear attack taunts (lion, bomb…) — mute per player
     music: 'lounge',     // ambient music style (see BQ.Sound.MUSIC_TRACKS)
     musicPrev: 'lounge', // last non-off style, restored by the 🎵 mute toggle
     // per-channel volumes, 0..1 (Settings → Sound Volumes)

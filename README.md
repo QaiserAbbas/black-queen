@@ -84,6 +84,13 @@ In an online game, tap **💬** to send an emoji reaction, a preset quick messag
 ("Nice play!", "Hurry up ⏳"…) or a short typed message — it pops up as a speech
 bubble at your seat on everyone's table. Rate-limited server-side.
 
+### Attack taunts (multiplayer)
+
+💬 → the red **attack row**: send a 🦁 Lion charge, 🐉 Dragon fire, 💣 Bomb,
+👻 Ghost or 💀 Doom rampaging across **every player's table** — pressure your
+opponents right before they pick a card. Budget is **one attack per move**
+(server-enforced); playing a card recharges it.
+
 ### Cinematics & sound
 
 Big moments get live-stream-style effects (all CSS 3D + synthesized audio, no
@@ -97,6 +104,14 @@ assets, no dependencies — see `js/fx.js`):
 - **Emoji reactions** (multiplayer) → float up the screen like a TikTok live.
 
 Everything can be turned off per player: 🎨 → *Cinematic effects*.
+
+All particles (sparks, rains, floats, confetti, attack actors) run on a single
+full-screen **canvas** with a physics loop (`js/fx.js`) — velocity, gravity,
+drag, sway, trails. Cards **fly** from each player's hand to the trick with an
+arc (opponents' cards 3D-flip face-up mid-air), and deals spin out of the
+center deck. Real recorded sounds live in `sounds/` (shuffle, card place, hard
+punch) with synthesized fallbacks. **Settings → Sound Volumes** mixes six
+channels independently: master, music, cards, hard punch, effects, interface.
 
 ### Appearance (per player)
 

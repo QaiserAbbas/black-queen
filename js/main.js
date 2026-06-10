@@ -95,9 +95,56 @@
     { key: 'soundEnabled', label: 'Sound', type: 'check' },
   ];
 
+  // Per-channel volume sliders (Settings → Sound Volumes). Applied live and
+  // saved to prefs — independent of the Save button, which is for game rules.
+  function appendVolumeSection(form) {
+    const h = document.createElement('h3');
+    h.className = 'full';
+    h.textContent = 'Sound Volumes';
+    form.appendChild(h);
+    const PREVIEW = {
+      master: () => BQ.Sound.trickWin(),
+      cards: () => BQ.Sound.play(),
+      punch: () => BQ.Sound.punch(),
+      fx: () => BQ.Sound.sparkle(),
+      ui: () => BQ.Sound.click(),
+    };
+    BQ.Sound.CHANNELS.forEach((ch) => {
+      const row = document.createElement('div');
+      row.className = 'set-row vol';
+      const lab = document.createElement('label');
+      lab.textContent = ch.label;
+      row.appendChild(lab);
+      const wrap = document.createElement('div');
+      wrap.className = 'vol-wrap';
+      const input = document.createElement('input');
+      input.type = 'range';
+      input.min = '0'; input.max = '1'; input.step = '0.05';
+      input.value = BQ.Sound.getVolume(ch.id);
+      const val = document.createElement('span');
+      val.className = 'vol-val';
+      val.textContent = Math.round(BQ.Sound.getVolume(ch.id) * 100) + '%';
+      input.addEventListener('input', () => {
+        const v = parseFloat(input.value);
+        BQ.Sound.setVolume(ch.id, v);
+        val.textContent = Math.round(v * 100) + '%';
+        const vols = Object.assign({}, BQ.Prefs.get().volumes);
+        vols[ch.id] = v;
+        BQ.Prefs.set({ volumes: vols });
+      });
+      // a short representative sound when the slider is released
+      input.addEventListener('change', () => { BQ.Sound.unlock(); if (PREVIEW[ch.id]) PREVIEW[ch.id](); });
+      wrap.appendChild(input);
+      wrap.appendChild(val);
+      row.appendChild(wrap);
+      form.appendChild(row);
+    });
+  }
+
   function buildSettingsForm() {
     const form = $('#settingsForm');
     form.innerHTML = '';
+    appendVolumeSection(form);
     SETTINGS_SCHEMA.forEach((f) => {
       if (f.section) {
         const h = document.createElement('h3');
@@ -208,6 +255,9 @@
     const save = () => { if (!isMultiplayer && engine === eng) saveSPGame(eng.snapshot()); };
     ['roundStart', 'turn', 'cardPlayed', 'trickWon', 'heartsBroken', 'roundEnd'].forEach((ev) => eng.on(ev, save));
     eng.on('gameOver', clearSPGame);     // finished — nothing left to resume
+    // attack-taunt credit: refunded when you play a card, fresh each round
+    eng.on('cardPlayed', (e) => { if (e.playerIndex === 0 && !attackCredit) { attackCredit = true; updateAttackBtns(); } });
+    eng.on('roundStart', () => { attackCredit = true; updateAttackBtns(); });
   }
 
   // On page load: rebuild a single-player game in progress from localStorage.
@@ -320,6 +370,8 @@
       if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
       ui.setReconnecting(false);
       ui.setNetStatus('online', net.latencyMs);
+      // tell the table about preferences they can see (🛡️ = taunts muted)
+      net.send({ t: 'prefs', attacksMuted: BQ.Prefs.get().attacks === false });
     });
     net.on('error', (m) => { setMpStatus(m.msg || 'Error', 'bad'); $('#mpError').textContent = ''; BQ.Sound.error(); });
     net.on('resumeFail', () => {
@@ -356,6 +408,13 @@
     });
     net.on('emote', (m) => ui.showEmote(m.seat, m.text, m.name, true));
     net.on('chat', (m) => ui.showEmote(m.seat, m.text, m.name, false));
+    // attack taunt — pops up at the ATTACKER's seat on every viewer's table
+    // (muteable per player: 🎨)
+    net.on('attack', (m) => {
+      if (BQ.Prefs.get().attacks === false) return;
+      BQ.FX.attack(m.kind, m.name, ui.seatAnchor(m.seat));
+      BQ.Sound.attack(m.kind);
+    });
     net.on('ready', (m) => renderReady(m));
     net.on('game', (m) => {
       if (!netEngine) {
@@ -367,6 +426,11 @@
         // set up the round/game-over confirmation controls
         netEngine.on('roundEnd', setupRoundControls);
         netEngine.on('gameOver', setupGameOverControls);
+        // attack credit refunds when I play a card (and each new round)
+        netEngine.on('cardPlayed', (ev) => {
+          if (ev.playerIndex === netEngine.me && !attackCredit) { attackCredit = true; updateAttackBtns(); }
+        });
+        netEngine.on('roundStart', () => { attackCredit = true; updateAttackBtns(); });
         ui.show('game');
         BQ.Sound.unlock();
         if (rules.soundEnabled) BQ.Sound.startMusic();
@@ -470,6 +534,7 @@
     $('#prefScaleVal').textContent = Math.round(p.cardScale * 100) + '%';
     $('#prefPreSelect').checked = !!p.preSelect;
     $('#prefFx').checked = p.fx !== false;
+    $('#prefAttacks').checked = p.attacks !== false;
 
     const tables = $('#prefTables');
     tables.innerHTML = '';
@@ -564,6 +629,57 @@
   const EMOTE_EMOJIS = ['😀', '😂', '😎', '🤔', '😭', '😡', '👏', '🔥', '💀', '👍', '🍀', '♛'];
   const EMOTE_MSGS = ['Nice play!', 'Hurry up ⏳', 'Good game!', 'Ouch!', 'Lucky!', 'Oh no…', 'Sorry!', 'Take the Queen 😈'];
 
+  // Attack-taunt budget: one per move. Spent on send; the server refunds it
+  // when you play your next card (mirrored here for instant button state).
+  let attackCredit = true;
+
+  function updateAttackBtns() {
+    document.querySelectorAll('.attack-btn').forEach((b) => { b.disabled = !attackCredit; });
+  }
+
+  function setupAttackRow() {
+    const row = $('#attackDock');
+    BQ.FX.ATTACKS.forEach((a) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'attack-btn';
+      b.innerHTML = '<span></span><small></small>';
+      b.querySelector('span').textContent = a.emoji;
+      b.querySelector('small').textContent = a.label;
+      b.title = 'Send a ' + a.label + ' at the whole table (1 per move)';
+      b.addEventListener('click', () => {
+        if (!attackCredit) { ui.toast('Recharges when you play a card'); return; }
+        attackCredit = false;
+        updateAttackBtns();
+        if (isMultiplayer && net && net.connected) {
+          net.send({ t: 'attack', kind: a.id });   // others still see it even if you muted your own screen
+        } else if (BQ.Prefs.get().attacks === false) {
+          ui.toast('Attack taunts are muted (🎨 Appearance)');
+        } else {
+          BQ.FX.attack(a.id, localName(), ui.seatAnchor(0));   // my own seat (south)
+          BQ.Sound.attack(a.id);
+        }
+        $('#emotePanel').classList.remove('show');
+      });
+      row.appendChild(b);
+    });
+    updateAttackBtns();
+  }
+
+  // In multiplayer the server relays to every table; in single player the
+  // bubble/float simply shows at your own seat (and attacks play locally).
+  function localName() {
+    return (engine && engine.players && engine.players[0]) ? engine.players[0].name : (myName || 'You');
+  }
+
+  function sendEmote(type, text) {
+    if (isMultiplayer && net && net.connected) {
+      net.send(type === 'emote' ? { t: 'emote', emoji: text } : { t: 'chat', text });
+    } else {
+      ui.showEmote(0, text, localName(), type === 'emote');
+    }
+  }
+
   function setupEmotePanel() {
     const emojis = $('#emoteEmojis');
     EMOTE_EMOJIS.forEach((e) => {
@@ -571,7 +687,7 @@
       b.type = 'button';
       b.className = 'emote-btn';
       b.textContent = e;
-      b.addEventListener('click', () => { if (net) net.send({ t: 'emote', emoji: e }); });
+      b.addEventListener('click', () => sendEmote('emote', e));
       emojis.appendChild(b);
     });
     const msgs = $('#emoteMsgs');
@@ -581,15 +697,15 @@
       b.className = 'emote-msg';
       b.textContent = m;
       b.addEventListener('click', () => {
-        if (net) net.send({ t: 'chat', text: m });
+        sendEmote('chat', m);
         $('#emotePanel').classList.remove('show');
       });
       msgs.appendChild(b);
     });
     const sendCustom = () => {
       const text = ($('#emoteInput').value || '').trim();
-      if (!text || !net) return;
-      net.send({ t: 'chat', text });
+      if (!text) return;
+      sendEmote('chat', text);
       $('#emoteInput').value = '';
       $('#emotePanel').classList.remove('show');
     };
@@ -650,11 +766,18 @@
       BQ.Prefs.set({ fx: e.target.checked });
       if (e.target.checked) { BQ.FX.floatEmoji('🎉', 4); BQ.Sound.pop(); }
     });
+    $('#prefAttacks').addEventListener('change', (e) => {
+      BQ.Prefs.set({ attacks: e.target.checked });
+      ui.toast(e.target.checked ? 'Attack taunts on' : 'Attack taunts muted on your screen');
+      // let everyone at the table see the 🛡️ state
+      if (net && net.connected) net.send({ t: 'prefs', attacksMuted: !e.target.checked });
+    });
     $('#btnEmote').addEventListener('click', () => {
       BQ.Sound.click();
       $('#emotePanel').classList.toggle('show');
     });
     setupEmotePanel();
+    setupAttackRow();
     $('#btnSettings').addEventListener('click', () => { BQ.Sound.click(); buildSettingsForm(); ui.openOverlay('settingsOverlay'); });
     $('#btnMusic').addEventListener('click', () => { BQ.Sound.click(); toggleMusic(); });
     $('#btnSound').addEventListener('click', () => {
@@ -728,6 +851,7 @@
     // apply saved appearance (card scale / felt / backs / face template / music)
     BQ.Prefs.apply();
     BQ.Sound.setMusicTrack(BQ.Prefs.get().music);
+    BQ.Sound.applyVolumes(BQ.Prefs.get().volumes);
     updateMusicBtn();
 
     // PWA: installable app + offline shell (single player works offline).

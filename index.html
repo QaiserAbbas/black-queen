@@ -94,7 +94,7 @@
           <div class="peers-chip mp-only" id="peersChip" title="Who's connected">👥</div>
         </div>
         <div class="right">
-          <button class="icon-btn mp-only" id="btnEmote" title="Emotes &amp; messages">💬</button>
+          <button class="icon-btn" id="btnEmote" title="Emotes &amp; messages">💬</button>
           <button class="icon-btn" id="btnLook" title="Appearance">🎨</button>
           <button class="icon-btn" id="btnMusic" title="Mute music (sound effects stay on)">🎵</button>
           <button class="icon-btn" id="btnSound" title="Toggle all sound">🔊</button>
@@ -130,6 +130,9 @@
           <div class="badge" data-seat="south"></div>
         </div>
       </div>
+
+      <!-- quick attack dock: 1 per move, play a card to recharge -->
+      <div class="attack-dock" id="attackDock"></div>
     </section>
 
     <!-- ===================== Overlays ===================== -->
@@ -211,6 +214,10 @@
         <div class="set-row check">
           <input type="checkbox" id="prefFx" />
           <label for="prefFx">Cinematic effects (Queen takeover, banners, emoji rain)</label>
+        </div>
+        <div class="set-row check">
+          <input type="checkbox" id="prefAttacks" />
+          <label for="prefAttacks">Attack taunts (🦁 💣 …) — untick to mute them on your screen</label>
         </div>
 
         <div class="close-row">

@@ -49,8 +49,9 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET' || url.origin !== location.origin) return;
 
-  if (url.pathname.startsWith('/cards/') || url.pathname.startsWith('/sounds/')) {
-    // immutable deck art + sound effects: cache-first
+  if ((url.pathname.startsWith('/cards/') || url.pathname.startsWith('/sounds/')) &&
+      !url.pathname.endsWith('manifest.json')) {
+    // immutable deck art + sound effects: cache-first (manifest stays fresh)
     e.respondWith(
       caches.match(e.request).then((hit) =>
         hit || fetch(e.request).then((res) => {

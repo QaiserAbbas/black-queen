@@ -134,7 +134,10 @@
       el.classList.toggle('warn', anyAway);
       el.title = this.peers.map((s) =>
         s.name + (s.isBot ? ' — bot' : s.connected ? ' — online' : s.away ? ' — connection lost (bot covering)' : ' — offline')
+        + (s.attacksMuted ? ' · 🛡️ taunts muted' : '')
       ).join('\n');
+      // refresh the 🛡️ tags on the table badges
+      if (this.engine && this.engine.players && this.engine.players.length) this.renderBadges();
     }
 
     /* ---- card DOM --------------------------------------------------------- */
@@ -189,9 +192,13 @@
         const tag = p.offline ? '<span class="off-tag">⚠️ OFFLINE</span>'
                   : isBot ? '<span class="bot-tag">🤖 BOT</span>'
                   : (isMe ? '<span class="you-tag">YOU</span>' : '');
+        // 🛡️ = this player muted attack taunts (taunting them is wasted)
+        const peer = this.peers && this.peers[idx];
+        const shield = (peer && peer.attacksMuted && !isBot)
+          ? ' <span class="shield-tag" title="Attack taunts muted">🛡️</span>' : '';
         b.innerHTML =
           '<div class="avatar">' + p.name.charAt(0).toUpperCase() + '</div>' +
-          '<div class="meta"><span class="pname">' + p.name + ' ' + tag +
+          '<div class="meta"><span class="pname">' + p.name + ' ' + tag + shield +
           (stuck ? ' <span class="queen-tag">♛</span>' : '') + '</span>' +
           '<span class="pscore">' +
             '<span class="st" title="Total score"><b>' + p.totalScore + '</b> pts</span>' +
@@ -214,10 +221,10 @@
       this.renderBadges();
       this._clearTrick();
       this.renderHumanHand([]);     // clear first
-      // render opponent face-down stacks
+      // render opponent face-down stacks (dealt out from the center deck)
       this.engine.players.forEach((p, i) => {
         if (i === this.me) return;
-        this.renderFacedown(this.seatOf[i], p.hand.length);
+        this.renderFacedown(this.seatOf[i], p.hand.length, true);
       });
       BQ.Sound.shuffle();
 
@@ -227,28 +234,37 @@
       BQ.Sound.deal();
     }
 
-    renderFacedown(seat, count) {
+    renderFacedown(seat, count, animate) {
       const wrap = $('[data-hand="' + seat + '"]');
       if (!wrap) return;
       wrap.innerHTML = '';
       for (let i = 0; i < count; i++) wrap.appendChild(this.cardEl(null, false));
+      if (animate) this._dealAnimate(wrap, 26);
+    }
+
+    /* ---- deal: every card flies + spins out from the center deck ---------- */
+    _dealAnimate(wrap, stagger) {
+      const cx = innerWidth / 2;
+      const cy = innerHeight / 2;
+      $$('.card', wrap).forEach((el, i) => {
+        const r = el.getBoundingClientRect();
+        if (!r.width) return;
+        const dx = cx - (r.left + r.width / 2);
+        const dy = cy - (r.top + r.height / 2);
+        el.animate([
+          { transform: 'translate(' + dx + 'px,' + dy + 'px) rotate(' + ((i % 2 ? -1 : 1) * 160) + 'deg) scale(0.35)', opacity: 0.2 },
+          { opacity: 1, offset: 0.4 },
+          { transform: 'none', opacity: 1 },
+        ], { duration: 460, delay: i * stagger, easing: 'cubic-bezier(.22,.9,.32,1)', fill: 'backwards' });
+      });
     }
 
     renderHumanHand(hand, animate) {
       const wrap = $('#humanHand');
       wrap.innerHTML = '';
       BQ.sortHand(hand);
-      hand.forEach((card, i) => {
+      hand.forEach((card) => {
         const el = this.cardEl(card, true);
-        if (animate) {
-          el.classList.add('dealing');
-          el.style.setProperty('--dx', '0px');
-          el.style.setProperty('--dy', '-220px');
-          el.style.setProperty('--dr', (i - hand.length / 2) * 2 + 'deg');
-          el.style.animationDelay = (i * 0.04) + 's';
-          // tidy up: drop the animation class once it has played
-          el.addEventListener('animationend', () => el.classList.remove('dealing'), { once: true });
-        }
         // Hold Ctrl/⌘ (or long-press on touch) while playing = HARD PUNCH slam.
         let longPress = false;
         let pressTimer = 0;
@@ -269,6 +285,7 @@
       this.layoutHumanHand();
       this.applyPlayable();
       this.applyStaged();
+      if (animate) this._dealAnimate(wrap, 42);
     }
 
     /* Fan the hand to fill the available width: every card spread evenly so its
@@ -331,6 +348,16 @@
         el.classList.toggle('playable', playable);
         el.classList.toggle('disabled', myTurn && !playable);
       });
+    }
+
+    /* ---- screen position of a player's badge (anchor for attack stamps) --- */
+    seatAnchor(seatIndex) {
+      const seatName = this.seatOf ? this.seatOf[seatIndex] : null;
+      const el = seatName ? $('.seat.' + seatName + ' .badge') : null;
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      if (!r.width) return null;
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
     }
 
     /* ---- emote / quick-message bubble at a player's seat ------------------ */
@@ -399,37 +426,108 @@
 
       const seat = this.seatOf[e.playerIndex];
 
-      // remove a card from that player's visible hand
+      // capture WHERE the card leaves from before removing it from the hand
+      let srcRect = null;
+      let flip = false;                              // opponents' cards flip over mid-flight
       if (e.playerIndex === this.me) {
         const el = $('#humanHand .card[data-id="' + e.card.id + '"]');
-        if (el) el.remove();
+        if (el) { srcRect = el.getBoundingClientRect(); el.remove(); }
       } else {
         const wrap = $('[data-hand="' + seat + '"]');
-        if (wrap && wrap.lastChild) wrap.lastChild.remove();
+        if (wrap && wrap.lastChild) { srcRect = wrap.lastChild.getBoundingClientRect(); wrap.lastChild.remove(); }
+        flip = true;
       }
 
-      // place into trick slot
+      // the destination card in the trick (hidden until the flight lands)
       const slot = document.createElement('div');
       slot.className = 'slot ' + seat;
       const card = this.cardEl(e.card, true);
+      slot.appendChild(card);
+      $('#trick').appendChild(slot);
 
       // HARD PUNCH: server hint for any player, local flag for single player.
       const punched = !!e.punch || (e.playerIndex === this.me && this._punchPending);
       if (e.playerIndex === this.me) this._punchPending = false;
 
-      if (punched) {
-        card.classList.add('punched');
-        slot.appendChild(card);
-        $('#trick').appendChild(slot);
-        BQ.Sound.punch();
-        BQ.FX.punchSlam(card);
+      const land = () => {
+        if (punched) {
+          card.classList.add('punched');
+          BQ.Sound.punch();
+          BQ.FX.punchSlam(card);
+        } else {
+          BQ.Sound.play();
+        }
+      };
+
+      const destRect = card.getBoundingClientRect();
+      if (srcRect && destRect.width) {
+        card.style.visibility = 'hidden';
+        this._flyCard(e.card, srcRect, destRect, flip, punched, () => {
+          card.style.visibility = '';
+          land();
+        });
       } else {
         card.style.animation = 'playPop 0.3s ease';
-        slot.appendChild(card);
-        $('#trick').appendChild(slot);
-        BQ.Sound.play();
+        land();
       }
       this.renderBadges();
+    }
+
+    /* ---- animate a card flying from a hand to its trick slot ---------------
+       Opponents' cards travel as a 3D flip (back → face revealed mid-air);
+       your own card arcs up and settles. Punched cards fly hard and fast.   */
+    _flyCard(cardData, src, dst, flip, punched, onDone) {
+      const fly = document.createElement('div');
+      fly.className = 'fly-card';
+      fly.style.left = dst.left + 'px';
+      fly.style.top = dst.top + 'px';
+      fly.style.width = dst.width + 'px';
+      fly.style.height = dst.height + 'px';
+
+      const inner = document.createElement('div');
+      inner.className = 'fly-inner';
+      const front = this.cardEl(cardData, true);
+      front.classList.add('fly-face', 'fly-front');
+      const back = this.cardEl(null, false);
+      back.classList.add('fly-face', 'fly-back');
+      inner.appendChild(front);
+      inner.appendChild(back);
+      fly.appendChild(inner);
+      document.body.appendChild(fly);
+
+      const dx = (src.left + src.width / 2) - (dst.left + dst.width / 2);
+      const dy = (src.top + src.height / 2) - (dst.top + dst.height / 2);
+      const sScale = dst.width ? (src.width / dst.width) : 1;
+      const dur = punched ? 240 : 420;
+      const lift = punched ? 14 : 52;                  // arc height
+
+      const move = fly.animate([
+        { transform: 'translate(' + dx + 'px,' + dy + 'px) scale(' + sScale + ')' },
+        { transform: 'translate(' + (dx * 0.42) + 'px,' + (dy * 0.42 - lift) + 'px) scale(' + ((1 + sScale) / 2) * 1.05 + ')', offset: 0.55 },
+        { transform: 'translate(0,0) scale(1)' },
+      ], { duration: dur, easing: punched ? 'cubic-bezier(.5,0,.8,.4)' : 'cubic-bezier(.25,.7,.3,1)' });
+
+      if (flip) {
+        inner.animate(
+          [{ transform: 'rotateY(180deg)' }, { transform: 'rotateY(0deg)' }],
+          { duration: dur * 0.92, easing: 'ease-out' }
+        );
+      } else {
+        inner.animate(
+          [{ transform: 'rotate(-8deg)' }, { transform: 'rotate(3deg)', offset: 0.6 }, { transform: 'rotate(0)' }],
+          { duration: dur, easing: 'ease-out' }
+        );
+      }
+
+      let finished = false;
+      const settle = () => {
+        if (finished) return;
+        finished = true;
+        fly.remove();
+        onDone();
+      };
+      move.onfinish = settle;
+      setTimeout(settle, dur + 120);                   // safety net (tab throttling)
     }
 
     onTrickWon(e) {
@@ -453,7 +551,11 @@
       } else {
         BQ.Sound.trickWin();
         this.handResult('Hand ' + e.handNo, who + ' win' + (who === 'You' ? '' : 's') + ' the hand', '✦', false);
-        if (e.winnerIndex === this.me) BQ.Sound.sparkle();
+        // YOUR clean win → lion roar + a little pride
+        if (e.winnerIndex === this.me) {
+          BQ.Sound.roar();
+          BQ.FX.floatEmoji('🦁', 3);
+        }
       }
       // The completed hand STAYS on the table. We just mark the winning card so
       // it's clear who took it; it is cleared only when the next lead is played.

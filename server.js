@@ -46,6 +46,14 @@ const MIME = {
 function serveStatic(req, res) {
   let urlPath = decodeURIComponent((req.url || '/').split('?')[0]);
   if (urlPath === '/') urlPath = '/index.html';
+  // What sound files actually exist — lets the client fetch only those
+  // (no 404 noise for optional overrides; see sounds/README.md).
+  if (urlPath === '/sounds/manifest.json') {
+    return fs.readdir(path.join(ROOT, 'sounds'), (err, files) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(err ? [] : files.filter((f) => /\.(mp3|ogg|wav)$/i.test(f))));
+    });
+  }
   // prevent path traversal
   const filePath = path.normalize(path.join(ROOT, urlPath));
   if (!filePath.startsWith(ROOT)) { res.writeHead(403); return res.end('Forbidden'); }
@@ -314,6 +322,7 @@ function presenceState(room) {
       isBot: !!s.isBot && !s.disconnected,
       connected: !!(s.clientId && clients.get(s.clientId)),
       away: !!s.disconnected,           // human seat temporarily covered by a bot
+      attacksMuted: !!s.attacksMuted,   // they won't see/hear taunts
     })),
   };
 }
@@ -331,6 +340,31 @@ function handleMessage(client, msg) {
     // round-trip latency; the traffic itself keeps proxies from idling us out.
     case 'ping': {
       client.send({ t: 'pong', ts: msg.ts });
+      break;
+    }
+    // Client-side preference flags others should know about (e.g. a player who
+    // muted attack taunts gets a 🛡️ on their badge — taunting them is wasted).
+    case 'prefs': {
+      const room = rooms.get(client.roomCode);
+      if (!room || client.seat < 0) break;
+      const seat = room.seats[client.seat];
+      if (!seat) break;
+      seat.attacksMuted = !!msg.attacksMuted;
+      broadcastPresence(room);
+      break;
+    }
+    // Attack taunt (lion / dragon / bomb / ghost / skull) — a big intimidation
+    // animation on every table. Budget: ONE per move; the credit comes back
+    // when the sender plays their next card.
+    case 'attack': {
+      const room = rooms.get(client.roomCode);
+      if (!room || !room.started || client.seat < 0) break;
+      const seat = room.seats[client.seat];
+      if (!seat || seat.attackUsed) break;
+      const kind = String(msg.kind || '');
+      if (['lion', 'dragon', 'bomb', 'ghost', 'skull'].indexOf(kind) < 0) break;
+      seat.attackUsed = true;
+      sendAll(room, { t: 'attack', kind, seat: client.seat, name: client.name });
       break;
     }
     // Quick emoji reaction or a short preset/custom message, shown as a speech
@@ -460,6 +494,9 @@ function handleMessage(client, msg) {
         room.punchNext = !!msg.punch;
         e.playHuman(msg.cardId);
         room.punchNext = false;
+        // playing a card refunds the attack-taunt credit (one per move)
+        const s = room.seats[client.seat];
+        if (s) s.attackUsed = false;
       }
       break;
     }
@@ -517,7 +554,11 @@ function startGame(room) {
 function wireEngine(room) {
   const e = room.engine;
 
-  e.on('roundStart', (ev) => { room.lastRoundEnd = null; broadcast(room, { name: 'roundStart', leaderIndex: ev.leaderIndex }); });
+  e.on('roundStart', (ev) => {
+    room.lastRoundEnd = null;
+    room.seats.forEach((s) => { s.attackUsed = false; });   // fresh attack credit each round
+    broadcast(room, { name: 'roundStart', leaderIndex: ev.leaderIndex });
+  });
   e.on('heartsBroken', () => broadcast(room, { name: 'heartsBroken' }));
   e.on('cardPlayed', () => { broadcast(room, { name: 'cardPlayed', punch: !!room.punchNext }); room.punchNext = false; });
   e.on('trickWon', (ev) => broadcast(room, {
