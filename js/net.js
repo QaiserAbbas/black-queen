@@ -12,11 +12,54 @@
 
   const BQ = root.BQ;
 
+  // Heartbeat: keeps cloud proxies (ngrok / Render / Cloudflare) from killing
+  // an "idle" socket, measures round-trip latency, and detects half-open
+  // connections (network died but no close event ever arrived).
+  // STALE_AFTER tolerates background-tab timer throttling (browsers slow
+  // intervals to ~1/min when the tab is hidden) so we don't churn reconnects.
+  const HEARTBEAT_EVERY_MS = 20 * 1000;
+  const STALE_AFTER_MS = 130 * 1000;
+
   class NetClient {
     constructor() {
       this.ws = null;
       this.handlers = {};
       this.connected = false;
+      this.latencyMs = null;     // last measured round-trip, for the status pill
+      this._lastSeen = 0;
+      this._hbTimer = null;
+    }
+
+    _startHeartbeat() {
+      this._lastSeen = Date.now();
+      this._hbTimer = setInterval(() => {
+        if (!this.connected) return;
+        // No traffic at all for too long → the link is dead even though the
+        // browser never told us. Force-close so the reconnect path kicks in.
+        if (Date.now() - this._lastSeen > STALE_AFTER_MS) {
+          try { this.ws.close(); } catch (_) {}
+          return;
+        }
+        this.send({ t: 'ping', ts: Date.now() });
+      }, HEARTBEAT_EVERY_MS);
+      // Coming back from a locked phone / background tab: probe immediately so
+      // a dead link is noticed (and replaced) right away, not a minute later.
+      if (!this._visHandler) {
+        this._visHandler = () => {
+          if (document.visibilityState === 'visible' && this.connected) {
+            this.send({ t: 'ping', ts: Date.now() });
+          }
+        };
+        document.addEventListener('visibilitychange', this._visHandler);
+      }
+    }
+
+    _stopHeartbeat() {
+      if (this._hbTimer) { clearInterval(this._hbTimer); this._hbTimer = null; }
+      if (this._visHandler) {
+        document.removeEventListener('visibilitychange', this._visHandler);
+        this._visHandler = null;
+      }
     }
     connect() {
       return new Promise((resolve, reject) => {
@@ -39,7 +82,11 @@
           const err = new Error('timeout'); err.code = 'timeout'; reject(err);
         }, 5000);
 
-        ws.onopen = () => { settled = true; clearTimeout(timer); this.connected = true; resolve(); };
+        ws.onopen = () => {
+          settled = true; clearTimeout(timer); this.connected = true;
+          this._startHeartbeat();
+          resolve();
+        };
         ws.onerror = () => {
           if (settled) return;
           settled = true; clearTimeout(timer);
@@ -47,11 +94,16 @@
         };
         ws.onclose = () => {
           this.connected = false;
+          this._stopHeartbeat();
           if (!settled) { settled = true; clearTimeout(timer); const err = new Error('closed'); err.code = 'no-server'; reject(err); }
           this.emit('close');
         };
         ws.onmessage = (ev) => {
+          this._lastSeen = Date.now();
           let msg; try { msg = JSON.parse(ev.data); } catch (_) { return; }
+          if (msg.t === 'pong') {
+            if (msg.ts) this.latencyMs = Date.now() - msg.ts;
+          }
           this.emit(msg.t, msg);
         };
       });
@@ -81,7 +133,8 @@
     emit(evt, payload) { (this.listeners[evt] || []).forEach((fn) => fn(payload)); }
 
     // Sending a move to the authoritative server (mirror of local playHuman).
-    playHuman(cardId) { this.client.send({ t: 'play', cardId }); return true; }
+    // punch = hard-punch slam; the server echoes it so every table sees it.
+    playHuman(cardId, punch) { this.client.send({ t: 'play', cardId, punch: !!punch }); return true; }
 
     get human() { return this.players[this.me]; }
 
@@ -99,6 +152,7 @@
       this.players = s.players.map((p) => {
         const obj = {
           index: p.index, name: p.name, isHuman: !p.isBot, isBot: p.isBot,
+          offline: !!p.offline,
           totalScore: p.totalScore, tricksWon: p.tricksWon,
           roundHistory: p.roundHistory || [], queenTakes: p.queenTakes,
           _penalty: p.penalty,
@@ -137,6 +191,7 @@
             this.emit('cardPlayed', {
               playerIndex: last.playerIndex, card: last.card,
               trick: this.currentTrick.slice(),
+              punch: !!hint.punch,
             });
           }
           break;

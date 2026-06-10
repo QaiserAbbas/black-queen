@@ -190,6 +190,7 @@
   /* ---- Game lifecycle (single player) ----------------------------------- */
   function newGame(name) {
     isMultiplayer = false; isHost = true;
+    document.body.classList.remove('mp');
     clearSPGame();                       // start fresh — drop any old saved game
     engine = new BQ.GameEngine(rules);
     engine.init(name);
@@ -318,6 +319,7 @@
       reconnectAttempts = 0;
       if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
       ui.setReconnecting(false);
+      ui.setNetStatus('online', net.latencyMs);
     });
     net.on('error', (m) => { setMpStatus(m.msg || 'Error', 'bad'); $('#mpError').textContent = ''; BQ.Sound.error(); });
     net.on('resumeFail', () => {
@@ -335,16 +337,30 @@
       ui.show('lobby');
     });
     net.on('close', () => {
-      // Lost the socket. If we're in a game with a saved session, transparently
-      // reconnect + resume; otherwise just note it.
-      if (!isMultiplayer || !session) { if (isMultiplayer) ui.toast('Disconnected from server'); return; }
+      ui.setNetStatus('offline');
+      // Lost the socket. Any saved session (lobby OR mid-game) reconnects and
+      // reclaims its seat transparently; without one there's nothing to resume.
+      if (!session) { if (isMultiplayer) ui.toast('Disconnected from server'); return; }
       ui.setReconnecting(true);
       scheduleReconnect();
     });
+    // Connection quality + presence — drive the status pill and seat dots.
+    net.on('pong', () => ui.setNetStatus('online', net.latencyMs));
+    net.on('peers', (m) => {
+      ui.renderPeers(m.seats);
+      if (m.note && m.note.name !== myName) {
+        if (m.note.kind === 'lost') ui.toast('⚠️ ' + m.note.name + ' lost connection — bot filling in');
+        else if (m.note.kind === 'back') ui.toast('✓ ' + m.note.name + ' is back online');
+        else if (m.note.kind === 'left') ui.toast(m.note.name + ' left the game');
+      }
+    });
+    net.on('emote', (m) => ui.showEmote(m.seat, m.text, m.name, true));
+    net.on('chat', (m) => ui.showEmote(m.seat, m.text, m.name, false));
     net.on('ready', (m) => renderReady(m));
     net.on('game', (m) => {
       if (!netEngine) {
         isMultiplayer = true;
+        document.body.classList.add('mp');   // reveals net pill, presence chip, emotes
         netEngine = new BQ.NetworkEngine(net);
         netEngine.ingest(m.snapshot);
         ui.attach(netEngine);
@@ -384,7 +400,8 @@
     const seats = state.players.map((p) =>
       '<div class="lobby-seat' + (p.you ? ' you' : '') + '">' +
       '<span class="avatar">' + p.name.charAt(0).toUpperCase() + '</span>' +
-      '<span class="lname">' + p.name + (p.seat === 0 ? ' 👑' : '') + (p.you ? ' (you)' : '') + '</span></div>'
+      '<span class="lname">' + p.name + (p.seat === 0 ? ' 👑' : '') + (p.you ? ' (you)' : '') +
+      (p.connected === false ? ' <span class="off-tag">⚠️ reconnecting…</span>' : '') + '</span></div>'
     ).join('');
     const empties = Math.max(0, state.maxSeats - state.players.length);
     const botNote = empties > 0
@@ -441,8 +458,143 @@
     reconnectAttempts = 0;
     ui.setReconnecting(false);
     netEngine = null; isMultiplayer = false;
+    document.body.classList.remove('mp');
     BQ.Sound.stopMusic();
     ui.show('menu');
+  }
+
+  /* ---- Appearance editor (per-player; see js/prefs.js) ------------------- */
+  function buildAppearanceForm() {
+    const p = BQ.Prefs.get();
+    $('#prefScale').value = p.cardScale;
+    $('#prefScaleVal').textContent = Math.round(p.cardScale * 100) + '%';
+    $('#prefPreSelect').checked = !!p.preSelect;
+    $('#prefFx').checked = p.fx !== false;
+
+    const tables = $('#prefTables');
+    tables.innerHTML = '';
+    BQ.Prefs.TABLES.forEach((t) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'swatch table-sw' + (p.table === t.id ? ' sel' : '');
+      b.setAttribute('data-table', t.id);
+      b.innerHTML = '<span class="sw-label">' + t.label + '</span>';
+      b.addEventListener('click', () => { BQ.Sound.click(); BQ.Prefs.set({ table: t.id }); buildAppearanceForm(); });
+      tables.appendChild(b);
+    });
+
+    const backs = $('#prefBacks');
+    backs.innerHTML = '';
+    BQ.Prefs.BACKS.forEach((bk) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'swatch back-sw' + (p.cardBack === bk.id ? ' sel' : '');
+      b.setAttribute('data-back', bk.id);
+      b.title = bk.label;
+      b.innerHTML = '<span class="card back mini-back"></span><span class="sw-label">' + bk.label + '</span>';
+      b.addEventListener('click', () => { BQ.Sound.click(); BQ.Prefs.set({ cardBack: bk.id }); buildAppearanceForm(); });
+      backs.appendChild(b);
+    });
+
+    const faces = $('#prefFaces');
+    faces.innerHTML = '';
+    BQ.Prefs.FACES.forEach((f) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'swatch face-sw' + (p.cardFace === f.id ? ' sel' : '');
+      b.textContent = f.label;
+      b.addEventListener('click', () => {
+        BQ.Sound.click();
+        BQ.Prefs.set({ cardFace: f.id });
+        ui.refreshCards();                 // repaint my hand with the new template
+        buildAppearanceForm();
+      });
+      faces.appendChild(b);
+    });
+
+    const music = $('#prefMusic');
+    music.innerHTML = '';
+    BQ.Sound.MUSIC_TRACKS.forEach((m) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'swatch face-sw' + (p.music === m.id ? ' sel' : '');
+      b.textContent = (m.id === 'off' ? '🔇 ' : '🎵 ') + m.label;
+      b.addEventListener('click', () => {
+        const patch = { music: m.id };
+        if (m.id !== 'off') patch.musicPrev = m.id;   // 🎵 toggle restores this
+        BQ.Prefs.set(patch);
+        BQ.Sound.unlock();
+        BQ.Sound.setMusicTrack(m.id);
+        // instant preview — the loop picks the new style up next bar
+        if (m.id !== 'off' && rules.soundEnabled) BQ.Sound.startMusic();
+        updateMusicBtn();
+        buildAppearanceForm();
+      });
+      music.appendChild(b);
+    });
+  }
+
+  /* ---- music mute toggle (independent of the 🔊 all-sound switch) --------- */
+  function updateMusicBtn() {
+    const btn = $('#btnMusic');
+    if (!btn) return;
+    const off = BQ.Prefs.get().music === 'off';
+    btn.classList.toggle('muted', off);
+    btn.title = off ? 'Music is off — click to turn on' : 'Mute music (sound effects stay on)';
+  }
+
+  function toggleMusic() {
+    const p = BQ.Prefs.get();
+    if (p.music === 'off') {
+      const restore = p.musicPrev || 'lounge';
+      BQ.Prefs.set({ music: restore });
+      BQ.Sound.unlock();
+      BQ.Sound.setMusicTrack(restore);
+      if (rules.soundEnabled) BQ.Sound.startMusic();
+      ui.toast('🎵 Music on');
+    } else {
+      BQ.Prefs.set({ musicPrev: p.music, music: 'off' });
+      BQ.Sound.setMusicTrack('off');
+      ui.toast('Music muted — sound effects stay on');
+    }
+    updateMusicBtn();
+  }
+
+  /* ---- Emotes & quick messages (multiplayer) ------------------------------ */
+  const EMOTE_EMOJIS = ['😀', '😂', '😎', '🤔', '😭', '😡', '👏', '🔥', '💀', '👍', '🍀', '♛'];
+  const EMOTE_MSGS = ['Nice play!', 'Hurry up ⏳', 'Good game!', 'Ouch!', 'Lucky!', 'Oh no…', 'Sorry!', 'Take the Queen 😈'];
+
+  function setupEmotePanel() {
+    const emojis = $('#emoteEmojis');
+    EMOTE_EMOJIS.forEach((e) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'emote-btn';
+      b.textContent = e;
+      b.addEventListener('click', () => { if (net) net.send({ t: 'emote', emoji: e }); });
+      emojis.appendChild(b);
+    });
+    const msgs = $('#emoteMsgs');
+    EMOTE_MSGS.forEach((m) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'emote-msg';
+      b.textContent = m;
+      b.addEventListener('click', () => {
+        if (net) net.send({ t: 'chat', text: m });
+        $('#emotePanel').classList.remove('show');
+      });
+      msgs.appendChild(b);
+    });
+    const sendCustom = () => {
+      const text = ($('#emoteInput').value || '').trim();
+      if (!text || !net) return;
+      net.send({ t: 'chat', text });
+      $('#emoteInput').value = '';
+      $('#emotePanel').classList.remove('show');
+    };
+    $('#btnEmoteSend').addEventListener('click', sendCustom);
+    $('#emoteInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') sendCustom(); });
   }
 
   /* ---- Event wiring ----------------------------------------------------- */
@@ -452,6 +604,7 @@
     $('#btnMulti').addEventListener('click', () => { BQ.Sound.unlock(); BQ.Sound.click(); openMultiplayer(); });
     $('#btnRules').addEventListener('click', () => { BQ.Sound.click(); $('#rulesModal').innerHTML = rulesHtml(); ui.openOverlay('rulesOverlay'); });
     $('#btnSettingsMenu').addEventListener('click', () => { BQ.Sound.click(); buildSettingsForm(); ui.openOverlay('settingsOverlay'); });
+    $('#btnLookMenu').addEventListener('click', () => { BQ.Sound.click(); buildAppearanceForm(); ui.openOverlay('lookOverlay'); });
 
     // Multiplayer screens
     $('#btnCreate').addEventListener('click', () => { BQ.Sound.click(); createRoom(); });
@@ -474,7 +627,36 @@
 
     // In-game toolbar
     $('#btnScores').addEventListener('click', () => { BQ.Sound.click(); ui.renderScoreboard(); ui.openOverlay('scoreOverlay'); });
+    $('#btnLook').addEventListener('click', () => { BQ.Sound.click(); buildAppearanceForm(); ui.openOverlay('lookOverlay'); });
+    $('#btnLookReset').addEventListener('click', () => {
+      BQ.Sound.click();
+      BQ.Prefs.reset();
+      BQ.Sound.setMusicTrack(BQ.Prefs.get().music);
+      buildAppearanceForm();
+      ui.refreshCards();
+      ui.toast('Appearance reset');
+    });
+    $('#prefScale').addEventListener('input', () => {
+      const v = parseFloat($('#prefScale').value) || 1;
+      BQ.Prefs.set({ cardScale: v });
+      $('#prefScaleVal').textContent = Math.round(v * 100) + '%';
+      ui.layoutHumanHand();
+    });
+    $('#prefPreSelect').addEventListener('change', (e) => {
+      BQ.Prefs.set({ preSelect: e.target.checked });
+      ui.toast(e.target.checked ? 'Pre-select on — tap a card before your turn' : 'Pre-select off');
+    });
+    $('#prefFx').addEventListener('change', (e) => {
+      BQ.Prefs.set({ fx: e.target.checked });
+      if (e.target.checked) { BQ.FX.floatEmoji('🎉', 4); BQ.Sound.pop(); }
+    });
+    $('#btnEmote').addEventListener('click', () => {
+      BQ.Sound.click();
+      $('#emotePanel').classList.toggle('show');
+    });
+    setupEmotePanel();
     $('#btnSettings').addEventListener('click', () => { BQ.Sound.click(); buildSettingsForm(); ui.openOverlay('settingsOverlay'); });
+    $('#btnMusic').addEventListener('click', () => { BQ.Sound.click(); toggleMusic(); });
     $('#btnSound').addEventListener('click', () => {
       rules.soundEnabled = !rules.soundEnabled;
       BQ.Sound.setEnabled(rules.soundEnabled);
@@ -542,6 +724,19 @@
     // initial sound icon state
     $('#btnSound').textContent = rules.soundEnabled ? '🔊' : '🔇';
     BQ.Sound.setEnabled(rules.soundEnabled);
+
+    // apply saved appearance (card scale / felt / backs / face template / music)
+    BQ.Prefs.apply();
+    BQ.Sound.setMusicTrack(BQ.Prefs.get().music);
+    updateMusicBtn();
+
+    // PWA: installable app + offline shell (single player works offline).
+    // Service workers need a secure context (https or localhost) — on plain
+    // LAN http this quietly does nothing.
+    if ('serviceWorker' in navigator &&
+        (location.protocol === 'https:' || location.hostname === 'localhost')) {
+      navigator.serviceWorker.register('sw.js').catch(() => {});
+    }
 
     // If we were in a game and the page reloaded, jump straight back into it.
     attemptResume();

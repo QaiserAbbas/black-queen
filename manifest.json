@@ -1,0 +1,15 @@
+{
+  "name": "Black Queen — Card Game",
+  "short_name": "Black Queen",
+  "description": "A trick-taking card game of hearts & nerve. Single player or online multiplayer.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#05140d",
+  "theme_color": "#0c5132",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}

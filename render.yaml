@@ -5,7 +5,10 @@ services:
   - type: web
     name: black-queen
     runtime: node
-    plan: free                # free tier sleeps when idle (first hit ~30-50s)
+    plan: free                # free tier sleeps when idle (first hit ~30-50s).
+                              # For real games switch to "starter" (always-on) —
+                              # sleeping mid-session is what makes the app feel
+                              # stuck for remote players.
     buildCommand: npm install  # no dependencies — this is effectively a no-op
     startCommand: npm start    # = node server.js  (binds to $PORT)
     healthCheckPath: /

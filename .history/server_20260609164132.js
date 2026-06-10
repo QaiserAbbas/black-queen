@@ -40,7 +40,6 @@ const MIME = {
   '.css': 'text/css; charset=utf-8',
   '.png': 'image/png', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml',
   '.ico': 'image/x-icon', '.json': 'application/json',
-  '.mp3': 'audio/mpeg', '.ogg': 'audio/ogg', '.wav': 'audio/wav',
 };
 
 function serveStatic(req, res) {
@@ -455,11 +454,7 @@ function handleMessage(client, msg) {
       if (!room || !room.engine) return;
       const e = room.engine;
       if (e.phase === 'awaitHuman' && e.currentPlayerIndex === client.seat) {
-        // playHuman emits cardPlayed synchronously — the flag rides along into
-        // that one broadcast (hard-punch slam shown on every table).
-        room.punchNext = !!msg.punch;
         e.playHuman(msg.cardId);
-        room.punchNext = false;
       }
       break;
     }
@@ -519,7 +514,7 @@ function wireEngine(room) {
 
   e.on('roundStart', (ev) => { room.lastRoundEnd = null; broadcast(room, { name: 'roundStart', leaderIndex: ev.leaderIndex }); });
   e.on('heartsBroken', () => broadcast(room, { name: 'heartsBroken' }));
-  e.on('cardPlayed', () => { broadcast(room, { name: 'cardPlayed', punch: !!room.punchNext }); room.punchNext = false; });
+  e.on('cardPlayed', () => broadcast(room, { name: 'cardPlayed' }));
   e.on('trickWon', (ev) => broadcast(room, {
     name: 'trickWon', winnerIndex: ev.winnerIndex, points: ev.points, handNo: ev.handNo,
     tookQueen: ev.tookQueen, queenDisregarded: ev.queenDisregarded,

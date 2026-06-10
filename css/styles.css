@@ -14,6 +14,7 @@
   --shadow: rgba(0, 0, 0, 0.45);
   --card-w: 92px;
   --card-h: 130px;
+  --card-scale: 1;                 /* per-player size multiplier for YOUR hand */
   --hand-overlap: 34px;            /* how much each card in your hand overlaps the prev */
   --fd-w: 60px;  --fd-h: 86px;     /* opponent face-down stack (north) */
   --fd-side-w: 50px; --fd-side-h: 72px;  /* opponent face-down stack (west/east) */
@@ -144,7 +145,12 @@ html, body {
   display: flex; flex-direction: column; gap: 0.4rem;
   margin-bottom: 1.4rem; z-index: 2; width: min(420px, 86vw);
 }
-.field label { font-size: 0.85rem; letter-spacing: 0.12em; text-transform: uppercase; color: #bfe0c9; }
+.field label { font-size: 0.85rem; letter-spacing: 0.12em; text-transform: uppercase; color: #bfe0c9; line-height: 1.45; }
+/* secondary hint inside a field label — its own quiet line, never an orphan */
+.field label .lab-hint {
+  display: block; margin-top: 1px;
+  font-size: 0.74rem; letter-spacing: 0.02em; text-transform: none; color: #9fc3ad;
+}
 .field input[type="text"], .field input[type="number"], .field select {
   font: inherit; padding: 0.8rem 1rem; border-radius: 12px;
   border: 1.5px solid rgba(255,255,255,0.25);
@@ -167,7 +173,7 @@ html, body {
     ".      south   .";
 }
 
-.seat { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.4rem; }
+.seat { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.4rem; position: relative; }
 .seat.north { grid-area: north; }
 .seat.south { grid-area: south; padding-bottom: env(safe-area-inset-bottom); }
 .seat.west  { grid-area: west; }
@@ -274,6 +280,8 @@ html, body {
 .hand { display: flex; align-items: flex-end; }
 .hand.south { gap: 0; }
 .hand.south .card {
+  width: calc(var(--card-w) * var(--card-scale));
+  height: calc(var(--card-h) * var(--card-scale));
   margin-left: calc(-1 * var(--hand-overlap)); transform-origin: bottom center;
   cursor: pointer;
 }
@@ -576,7 +584,11 @@ table.score .stuck-row td { background: rgba(192,57,43,0.16); }
   }
 }
 
-/* Make the non-game screens scroll instead of clipping when space is tight */
+/* Make the non-game screens scroll instead of clipping when space is tight.
+   Auto margins on the first/last child keep the content VERTICALLY CENTERED
+   while it fits (autos absorb the free space equally) yet collapse to 0 the
+   moment it overflows — so tall content top-aligns and scrolls cleanly
+   instead of clipping at the top. */
 @media (max-width: 680px), (max-height: 540px) {
   .screen:not(#game) {
     justify-content: flex-start;
@@ -584,6 +596,8 @@ table.score .stuck-row td { background: rgba(192,57,43,0.16); }
     -webkit-overflow-scrolling: touch;
     padding: 1.6rem 1rem calc(1.6rem + env(safe-area-inset-bottom));
   }
+  .screen:not(#game) > :first-child { margin-top: auto; }
+  .screen:not(#game) > :last-child { margin-bottom: auto; }
 }
 
 /* Landscape phones — height is the tight axis, so shrink cards + badges and
@@ -680,4 +694,469 @@ table.score .stuck-row td { background: rgba(192,57,43,0.16); }
   20%, 80% { transform: translateX(4px); }
   30%, 50%, 70% { transform: translateX(-7px); }
   40%, 60% { transform: translateX(7px); }
+}
+
+/* =============================================================================
+ * PERSONAL APPEARANCE — table felts, card backs, card face templates
+ * Driven by data-attributes on <body> (see js/prefs.js). Swatch previews in the
+ * Appearance modal reuse the same selectors via their own data-attributes.
+ * ===========================================================================*/
+
+/* ---- Table felt themes (6) ---------------------------------------------- */
+body[data-table="midnight"], .table-sw[data-table="midnight"] {
+  --felt-1: #1b3a5c; --felt-2: #122a45; --felt-edge: #0a1a2e;
+}
+body[data-table="crimson"], .table-sw[data-table="crimson"] {
+  --felt-1: #6e1f2a; --felt-2: #531720; --felt-edge: #320d13;
+}
+body[data-table="charcoal"], .table-sw[data-table="charcoal"] {
+  --felt-1: #3a4148; --felt-2: #2a3036; --felt-edge: #16191d;
+}
+body[data-table="royal"], .table-sw[data-table="royal"] {
+  --felt-1: #4a2a6e; --felt-2: #371f54; --felt-edge: #201232;
+}
+body[data-table="sand"], .table-sw[data-table="sand"] {
+  --felt-1: #8a6f47; --felt-2: #6e5736; --felt-edge: #473722;
+}
+
+/* ---- Card back designs (10) ---------------------------------------------
+   The default (crimson weave) is the base .card.back rule; each design swaps
+   the pattern + trim. [data-back] matches both <body> and a swatch preview. */
+[data-back="navy"] .card.back {
+  background: repeating-linear-gradient(45deg, #1c2e57 0 8px, #142141 8px 16px), #16244a;
+  border-color: #c8d8fb;
+}
+[data-back="navy"] .card.back::after { color: rgba(200,216,251,0.85); }
+[data-back="emerald"] .card.back {
+  background: repeating-linear-gradient(90deg, #0f5c38 0 6px, #0a4128 6px 12px), #0c4a2e;
+  border-color: #c8fbe0;
+}
+[data-back="emerald"] .card.back::after { color: rgba(200,251,224,0.85); }
+[data-back="gold"] .card.back {
+  background: radial-gradient(circle at 50% 38%, #c89a2a, #8a6508 70%), #8a6508;
+  border-color: #fff3d0;
+}
+[data-back="gold"] .card.back::after { color: rgba(40,28,5,0.75); }
+[data-back="plum"] .card.back {
+  background: repeating-linear-gradient(135deg, #5c2a57 0 10px, #451f41 10px 20px), #4a2245;
+  border-color: #f3d0ee;
+}
+[data-back="plum"] .card.back::after { color: rgba(243,208,238,0.85); }
+[data-back="ocean"] .card.back {
+  background: repeating-linear-gradient(0deg, #0e4a5c 0 7px, #0a3645 7px 14px), #0c3e4d;
+  border-color: #cdeef8;
+}
+[data-back="ocean"] .card.back::after { color: rgba(205,238,248,0.85); }
+[data-back="slate"] .card.back {
+  background: repeating-linear-gradient(45deg, #3a4148 0 4px, #2c3238 4px 8px), #31373d;
+  border-color: #dfe6ec;
+}
+[data-back="slate"] .card.back::after { color: rgba(223,230,236,0.85); }
+[data-back="rose"] .card.back {
+  background: repeating-linear-gradient(45deg, #a64d6d 0 8px, #8a3c58 8px 16px), #94445f;
+  border-color: #ffe0ea;
+}
+[data-back="rose"] .card.back::after { color: rgba(255,224,234,0.9); }
+[data-back="teal"] .card.back {
+  background: repeating-linear-gradient(60deg, #0d5752 0 9px, #0a423e 9px 18px), #0b4a45;
+  border-color: #c9f5f1;
+}
+[data-back="teal"] .card.back::after { color: rgba(201,245,241,0.85); }
+[data-back="noir"] .card.back {
+  background: linear-gradient(160deg, #1b1e26, #101218), #14161a;
+  border-color: var(--gold);
+}
+[data-back="noir"] .card.back::after { color: var(--gold-bright); }
+
+/* ---- Card face templates (text-based, no images) -------------------------- */
+.card.tpl {
+  display: flex; align-items: center; justify-content: center;
+  background: #fdfdf8;
+  border: 1px solid rgba(0,0,0,0.18);
+}
+.card.tpl .ci {
+  position: absolute; line-height: 1; font-weight: 800;
+  font-size: calc(var(--card-w) * var(--card-scale) * 0.2);
+  display: flex; flex-direction: column; align-items: center;
+}
+.card.tpl .ci i { font-style: normal; font-size: 0.85em; }
+.card.tpl .ci.tl { top: 4px; left: 5px; }
+.card.tpl .ci.br { bottom: 4px; right: 5px; transform: rotate(180deg); }
+.card.tpl .cs { font-size: calc(var(--card-w) * var(--card-scale) * 0.52); }
+/* in the trick area (not the scaled hand) the templates use the base size */
+.trick .card.tpl .ci { font-size: calc(var(--card-w) * 0.2); }
+.trick .card.tpl .cs { font-size: calc(var(--card-w) * 0.52); }
+.card.tpl.red { color: var(--crimson); }
+.card.tpl.black { color: #1c2530; }
+.card.tpl-contrast { background: linear-gradient(170deg, #1b202b, #131822); border-color: rgba(255,255,255,0.22); }
+.card.tpl-contrast.red { color: #ff7a6c; }
+.card.tpl-contrast.black { color: #e8ecf4; }
+
+/* ---- Pre-selected (staged) card ------------------------------------------ */
+.hand.south .card.staged {
+  transform: translateY(-20px);
+  box-shadow: 0 0 0 2.5px var(--gold-bright), 0 0 20px rgba(233,196,106,0.65), 0 12px 24px var(--shadow);
+  z-index: 40;
+}
+.hand.south .card.staged::after {
+  content: '📌'; position: absolute; top: -10px; right: -6px; font-size: 0.95rem;
+  filter: drop-shadow(0 2px 4px rgba(0,0,0,0.6));
+}
+
+/* =============================================================================
+ * MULTIPLAYER PRESENCE + EMOTES
+ * ===========================================================================*/
+
+/* anything tagged .mp-only appears only during an online game */
+body:not(.mp) .mp-only { display: none !important; }
+
+/* connection status + "who's online" pills in the toolbar */
+.net-pill, .peers-chip {
+  display: flex; align-items: center;
+  padding: 0.45rem 0.8rem; border-radius: 999px;
+  font-weight: 700; font-size: 0.78rem; white-space: nowrap;
+  background: rgba(0,0,0,0.4); border: 1.5px solid rgba(255,255,255,0.15);
+  pointer-events: auto;
+}
+.net-pill.online { border-color: rgba(46,204,113,0.7); color: #b7f5cf; }
+.net-pill.reconnecting { border-color: #ffb347; color: #ffe2b8; }
+.net-pill.offline { border-color: var(--crimson); color: #ffc9c0; }
+.peers-chip.warn { border-color: #ffb347; color: #ffe2b8; }
+
+/* a player who dropped (bot covering until they reconnect) */
+.off-tag {
+  font-size: 0.6rem; font-weight: 800; letter-spacing: 0.05em;
+  padding: 1px 5px; border-radius: 6px; color: #fff;
+  background: linear-gradient(135deg, #e67e22, #c0392b);
+}
+.badge.offline { border-color: rgba(230,126,34,0.8); }
+.badge.offline .avatar { filter: grayscale(0.85); opacity: 0.8; }
+
+/* speech bubble for emotes / quick messages, anchored to a seat */
+.seat .emote-bubble {
+  position: absolute; left: 50%; top: -10px; z-index: 70;
+  transform: translate(-50%, 10px) scale(0.6); opacity: 0;
+  background: #fff; color: #14161a; font-weight: 700; font-size: 0.9rem;
+  padding: 0.45rem 0.85rem; border-radius: 14px; max-width: 230px;
+  box-shadow: 0 10px 26px rgba(0,0,0,0.45);
+  transition: transform 0.22s cubic-bezier(.2, 1.4, .3, 1), opacity 0.2s;
+  pointer-events: none; text-align: center; word-break: break-word;
+}
+.seat.north .emote-bubble { top: auto; bottom: -14px; }
+.seat .emote-bubble.show { opacity: 1; transform: translate(-50%, 0) scale(1); }
+.seat .emote-bubble.big {
+  font-size: 2.1rem; background: transparent; box-shadow: none; padding: 0;
+  filter: drop-shadow(0 6px 12px rgba(0,0,0,0.55));
+}
+
+/* emote / quick-message picker panel */
+.emote-panel {
+  position: absolute; right: max(12px, env(safe-area-inset-right)); top: 64px;
+  z-index: 95; display: none; flex-direction: column; gap: 0.55rem;
+  background: linear-gradient(180deg, rgba(20,39,28,0.97), rgba(12,28,19,0.97));
+  border: 1.5px solid rgba(233,196,106,0.4); border-radius: 14px;
+  padding: 0.7rem; width: min(320px, 86vw);
+  box-shadow: 0 14px 40px rgba(0,0,0,0.5);
+}
+.emote-panel.show { display: flex; }
+.emote-row { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.emote-btn {
+  font-size: 1.3rem; width: 42px; height: 38px; cursor: pointer;
+  background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 9px; transition: transform 0.1s, background 0.15s;
+}
+.emote-btn:hover { transform: scale(1.15); background: rgba(233,196,106,0.25); }
+.emote-msg {
+  font: inherit; font-size: 0.78rem; font-weight: 600; color: #e9f5ec;
+  background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.16);
+  border-radius: 999px; padding: 0.3rem 0.7rem; cursor: pointer;
+}
+.emote-msg:hover { background: rgba(233,196,106,0.22); }
+.emote-custom { display: flex; gap: 0.4rem; }
+.emote-custom input {
+  flex: 1; min-width: 0; font: inherit; font-size: 0.85rem;
+  padding: 0.45rem 0.7rem; border-radius: 9px;
+  border: 1.5px solid rgba(255,255,255,0.2); background: rgba(0,0,0,0.3);
+  color: #fff; outline: none;
+}
+.emote-custom input:focus { border-color: var(--gold); }
+
+/* =============================================================================
+ * APPEARANCE MODAL — swatches
+ * ===========================================================================*/
+.scale-row { display: flex; align-items: center; gap: 0.8rem; }
+.scale-row input[type="range"] { flex: 1; accent-color: var(--gold); }
+
+.swatch-grid { display: flex; flex-wrap: wrap; gap: 0.55rem; }
+.swatch {
+  font: inherit; cursor: pointer; border-radius: 12px;
+  border: 2px solid rgba(255,255,255,0.18);
+  background: rgba(0,0,0,0.25); color: #e9f5ec; padding: 0.5rem 0.7rem;
+  transition: border-color 0.15s, transform 0.1s;
+}
+.swatch:hover { transform: translateY(-2px); }
+.swatch.sel { border-color: var(--gold-bright); box-shadow: 0 0 12px rgba(233,196,106,0.45); }
+.swatch .sw-label { font-size: 0.72rem; font-weight: 700; }
+
+.table-sw {
+  width: 100px; height: 60px;
+  display: flex; align-items: flex-end; justify-content: center;
+  background: radial-gradient(circle at 50% 35%, var(--felt-1), var(--felt-2) 75%);
+}
+.table-sw .sw-label { text-shadow: 0 1px 4px rgba(0,0,0,0.8); padding-bottom: 2px; }
+
+.back-sw { display: flex; flex-direction: column; align-items: center; gap: 0.35rem; padding: 0.5rem 0.55rem; }
+.back-sw .mini-back {
+  width: 44px; height: 62px; border-width: 2px; border-radius: 5px; pointer-events: none;
+}
+.back-sw .mini-back::after { font-size: 1.1rem; }
+.face-sw { font-size: 0.8rem; font-weight: 700; }
+
+/* =============================================================================
+ * FX ENGINE — TikTok-live-style celebrations (see js/fx.js)
+ * ===========================================================================*/
+#fx3d {
+  position: fixed; inset: 0; z-index: 9000; pointer-events: none;
+  overflow: hidden; perspective: 900px;
+}
+
+/* ---- floating reactions (rise up the right side like a live stream) ------ */
+.fx-float {
+  position: absolute; bottom: -50px; will-change: transform, opacity;
+  animation: fxFloatUp 3.4s ease-out forwards;
+  filter: drop-shadow(0 4px 8px rgba(0,0,0,0.45));
+}
+@keyframes fxFloatUp {
+  0%   { transform: translate(0, 0) scale(0.4) rotate(-8deg); opacity: 0; }
+  8%   { transform: translate(calc(var(--sway, 0px) * 0.2), -8vh) scale(1.15) rotate(4deg); opacity: 1; }
+  60%  { transform: translate(var(--sway, 0px), -52vh) scale(1) rotate(-6deg); opacity: 1; }
+  100% { transform: translate(calc(var(--sway, 0px) * 1.6), -98vh) scale(0.8) rotate(8deg); opacity: 0; }
+}
+
+/* ---- emoji rain ----------------------------------------------------------- */
+.fx-rain {
+  position: absolute; top: -48px; will-change: transform, opacity;
+  animation: fxRainFall linear forwards;
+  filter: drop-shadow(0 3px 6px rgba(0,0,0,0.4));
+}
+@keyframes fxRainFall {
+  0%   { transform: translateY(0) rotate(0); opacity: 0; }
+  10%  { opacity: 1; }
+  100% { transform: translateY(108vh) rotate(300deg); opacity: 0.85; }
+}
+
+/* ---- top gift banner ------------------------------------------------------ */
+.fx-banner {
+  position: absolute; top: max(14px, env(safe-area-inset-top)); left: 50%;
+  display: flex; align-items: center; gap: 0.7rem;
+  padding: 0.6rem 1.4rem 0.6rem 0.9rem; border-radius: 999px;
+  transform: translateX(-50%) translateY(-180%) rotateX(80deg);
+  transform-origin: top center; opacity: 0;
+  transition: transform 0.5s cubic-bezier(.2, 1.5, .3, 1), opacity 0.35s;
+  box-shadow: 0 14px 44px rgba(0,0,0,0.55);
+  overflow: hidden;
+}
+.fx-banner.in  { transform: translateX(-50%) translateY(0) rotateX(0); opacity: 1; }
+.fx-banner.out { transform: translateX(-50%) translateY(-180%) rotateX(-70deg); opacity: 0; }
+.fx-banner::after {                       /* shimmer sweep */
+  content: ''; position: absolute; inset: 0;
+  background: linear-gradient(105deg, transparent 30%, rgba(255,255,255,0.45) 48%, transparent 62%);
+  transform: translateX(-120%); animation: fxShimmer 1.6s ease 0.4s 2;
+}
+@keyframes fxShimmer { to { transform: translateX(120%); } }
+.fx-banner .fxb-icon {
+  width: 42px; height: 42px; border-radius: 50%; flex: 0 0 auto;
+  display: grid; place-items: center; font-size: 1.4rem;
+  background: rgba(0,0,0,0.25); box-shadow: inset 0 0 0 2px rgba(255,255,255,0.35);
+}
+.fx-banner .fxb-text { display: flex; flex-direction: column; line-height: 1.18; }
+.fx-banner .fxb-text b { font-size: 1rem; letter-spacing: 0.02em; }
+.fx-banner .fxb-text small { font-size: 0.74rem; opacity: 0.9; }
+.fx-banner.gold  { background: linear-gradient(135deg, #b8860b, #e9c46a); color: #1a1208; }
+.fx-banner.queen { background: linear-gradient(135deg, #1d1d2b, #3a2c4a); color: #ffd877; border: 1.5px solid var(--gold); }
+.fx-banner.heart { background: linear-gradient(135deg, #7b1421, #c0392b); color: #ffe9e5; }
+.fx-banner.win   { background: linear-gradient(135deg, #0f7a43, #2ecc71); color: #06281a; }
+
+/* ---- heart hit ------------------------------------------------------------ */
+.fx-bigheart {
+  position: absolute; transform: translate(-50%, -50%) scale(0.2);
+  font-size: 56px; will-change: transform, opacity;
+  animation: fxHeartBeat 1.4s cubic-bezier(.2, 1.4, .3, 1) forwards;
+  filter: drop-shadow(0 8px 18px rgba(192,57,43,0.6));
+}
+@keyframes fxHeartBeat {
+  0%   { transform: translate(-50%, -50%) scale(0.2); opacity: 0; }
+  18%  { transform: translate(-50%, -50%) scale(1.5); opacity: 1; }
+  32%  { transform: translate(-50%, -50%) scale(1.1); }
+  48%  { transform: translate(-50%, -50%) scale(1.45); }
+  64%  { transform: translate(-50%, -50%) scale(1.15); }
+  100% { transform: translate(-50%, -62%) scale(0.4); opacity: 0; }
+}
+.fx-bigheart-pts {
+  position: absolute; left: 50%; top: -16px; transform: translateX(-50%);
+  font-size: 1.05rem; font-weight: 900; color: #ff8a7a; white-space: nowrap;
+  text-shadow: 0 2px 8px rgba(0,0,0,0.7);
+}
+.fx-mini {
+  position: absolute; transform: translate(-50%, -50%);
+  will-change: transform, opacity;
+  animation: fxMiniBurst 1.3s ease-out forwards;
+}
+@keyframes fxMiniBurst {
+  0%   { transform: translate(-50%, -50%) scale(0.4); opacity: 0; }
+  15%  { opacity: 1; }
+  100% { transform: translate(calc(-50% + var(--tx)), calc(-50% + var(--ty))) scale(1); opacity: 0; }
+}
+
+/* ---- Black Queen cinematic ------------------------------------------------ */
+.fxq {
+  position: absolute; inset: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 10px;
+  background: radial-gradient(circle at 50% 42%, rgba(20,10,30,0.55), rgba(5,2,10,0.88));
+  opacity: 0; transition: opacity 0.3s;
+}
+.fxq.show { opacity: 1; }
+.fxq.out  { opacity: 0; transition: opacity 0.5s; }
+.fxq-flash {
+  position: absolute; inset: 0; background: #fff; opacity: 0;
+  animation: fxLightning 1.2s steps(1) 1;
+}
+@keyframes fxLightning {
+  0% { opacity: 0; } 4% { opacity: 0.85; } 8% { opacity: 0; }
+  14% { opacity: 0.5; } 18% { opacity: 0; }
+  34% { opacity: 0.65; } 38% { opacity: 0; }
+}
+.fxq-rings { position: absolute; left: 50%; top: 44%; }
+.fxq-rings span {
+  position: absolute; left: 0; top: 0; width: 10px; height: 10px;
+  border-radius: 50%; border: 3px solid var(--gold-bright);
+  transform: translate(-50%, -50%) scale(0);
+  animation: fxRing 1.6s ease-out forwards;
+  box-shadow: 0 0 30px rgba(233,196,106,0.7);
+}
+.fxq-rings span:nth-child(2) { animation-delay: 0.35s; border-color: #c0392b; }
+.fxq-rings span:nth-child(3) { animation-delay: 0.7s; }
+@keyframes fxRing {
+  0% { transform: translate(-50%, -50%) scale(0); opacity: 1; }
+  100% { transform: translate(-50%, -50%) scale(60); opacity: 0; }
+}
+.fxq-card3d { perspective: 900px; width: 150px; height: 212px; }
+.fxq-spin {
+  width: 100%; height: 100%; position: relative;
+  transform-style: preserve-3d;
+  animation: fxCardIn 1.25s cubic-bezier(.2, 1.2, .3, 1) forwards,
+             fxCardIdle 2.4s ease-in-out 1.3s infinite;
+}
+@keyframes fxCardIn {
+  0%   { transform: scale(0.1) rotateY(0) translateZ(-600px); }
+  70%  { transform: scale(1.06) rotateY(900deg) translateZ(0); }
+  100% { transform: scale(1) rotateY(1080deg); }
+}
+@keyframes fxCardIdle {
+  0%, 100% { transform: scale(1) rotateY(1080deg) rotateZ(-2deg) translateY(0); }
+  50%      { transform: scale(1.03) rotateY(1098deg) rotateZ(2deg) translateY(-8px); }
+}
+.fxq-face {
+  position: absolute; inset: 0; border-radius: 10px;
+  backface-visibility: hidden;
+  box-shadow: 0 0 0 3px var(--gold), 0 0 44px rgba(233,196,106,0.8), 0 24px 60px rgba(0,0,0,0.7);
+}
+.fxq-front {
+  background: #fff url('../cards/queen_of_spades.svg') center / 100% 100% no-repeat;
+}
+.fxq-back {
+  transform: rotateY(180deg);
+  background: repeating-linear-gradient(45deg, #7b1421 0 8px, #5e0f19 8px 16px), #6a1019;
+  display: grid; place-items: center;
+}
+.fxq-back span { font-size: 3.4rem; color: rgba(251,233,200,0.9); }
+.fxq-name {
+  font-size: 1.7rem; font-weight: 800; color: #ffd877; z-index: 2;
+  text-shadow: 0 2px 12px rgba(0,0,0,0.8);
+  animation: fxPopIn 0.4s 0.9s cubic-bezier(.2, 1.6, .3, 1) backwards;
+}
+.fxq.you .fxq-name { color: #ff8a7a; }
+.fxq-taunt {
+  font-size: 1.1rem; font-weight: 600; color: #fff; z-index: 2;
+  text-shadow: 0 2px 8px rgba(0,0,0,0.8);
+  animation: fxPopIn 0.4s 1.05s cubic-bezier(.2, 1.6, .3, 1) backwards;
+}
+.fxq-pts {
+  font-size: 2.3rem; font-weight: 900; color: #ff6b5e; z-index: 2;
+  text-shadow: 0 2px 14px rgba(0,0,0,0.8);
+  animation: fxPtsSlam 0.5s 1.2s cubic-bezier(.2, 1.8, .3, 1) backwards;
+}
+@keyframes fxPopIn { from { transform: scale(0.2); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+@keyframes fxPtsSlam {
+  0% { transform: scale(3.4); opacity: 0; }
+  60% { transform: scale(0.9); opacity: 1; }
+  100% { transform: scale(1); }
+}
+
+/* ---- 3D confetti ----------------------------------------------------------- */
+.fx-conf {
+  position: absolute; top: -24px; will-change: transform, opacity;
+  transform-style: preserve-3d;
+  animation: fxConfFall linear forwards;
+  border-radius: 2px;
+}
+@keyframes fxConfFall {
+  0%   { transform: translateY(0) rotateX(0) rotateZ(0); opacity: 1; }
+  100% { transform: translateY(110vh) rotateX(var(--rx, 540deg)) rotateZ(var(--rz, 360deg)); opacity: 0.3; }
+}
+
+/* ---- HARD PUNCH slam (Ctrl/⌘-click or long-press while playing) ---------- */
+.fx-impact-flash {
+  position: absolute; width: 220px; height: 220px;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(circle, rgba(255,255,255,0.95), rgba(255,216,119,0.5) 40%, transparent 70%);
+  border-radius: 50%;
+  animation: fxFlashOut 0.32s ease-out forwards;
+}
+@keyframes fxFlashOut {
+  0% { opacity: 1; transform: translate(-50%, -50%) scale(0.4); }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(1.5); }
+}
+.fx-shock {
+  position: absolute; width: 14px; height: 14px; border-radius: 50%;
+  border: 4px solid var(--gold-bright);
+  transform: translate(-50%, -50%) scale(0);
+  box-shadow: 0 0 26px rgba(233,196,106,0.8);
+  animation: fxShockOut 0.7s cubic-bezier(.1, .8, .3, 1) forwards;
+}
+.fx-shock.red { border-color: var(--crimson); box-shadow: 0 0 26px rgba(192,57,43,0.8); }
+@keyframes fxShockOut {
+  0% { transform: translate(-50%, -50%) scale(0); opacity: 1; }
+  100% { transform: translate(-50%, -50%) scale(16); opacity: 0; }
+}
+.fx-spark {
+  position: absolute; transform: translate(-50%, -50%);
+  will-change: transform, opacity;
+  animation: fxSparkOut 0.95s ease-out forwards;
+  filter: drop-shadow(0 0 6px rgba(255,216,119,0.8));
+}
+@keyframes fxSparkOut {
+  0%   { transform: translate(-50%, -50%) scale(0.3) rotate(0); opacity: 0; }
+  12%  { opacity: 1; }
+  100% { transform: translate(calc(-50% + var(--tx)), calc(-50% + var(--ty))) scale(1.1) rotate(160deg); opacity: 0; }
+}
+
+/* the slammed card itself: drops in hard, glows gold */
+.trick .card.punched {
+  animation: fxPunchIn 0.5s cubic-bezier(.2, 1.3, .3, 1);
+  box-shadow: 0 0 0 3px var(--gold-bright), 0 0 34px rgba(233,196,106,0.9), 0 14px 30px var(--shadow);
+}
+@keyframes fxPunchIn {
+  0%   { transform: scale(2.4) rotate(-10deg); filter: brightness(1.6); }
+  55%  { transform: scale(0.9) rotate(2deg); filter: brightness(1.15); }
+  75%  { transform: scale(1.07) rotate(-1deg); }
+  100% { transform: scale(1) rotate(0); filter: none; }
+}
+
+/* music-mute toolbar button: dimmed with a strike when music is off */
+.icon-btn.muted { opacity: 0.45; position: relative; }
+.icon-btn.muted::after {
+  content: ''; position: absolute; left: 9px; right: 9px; top: 50%;
+  height: 2.5px; background: #ff8a7a; border-radius: 2px;
+  transform: rotate(-32deg);
 }

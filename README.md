@@ -38,6 +38,78 @@ The server runs the authoritative game; if someone disconnects, their seat
 becomes a bot so the game never stalls. The host advances rounds and can edit
 rules (Settings) before starting. Requires Node.js (v14+); no `npm install`.
 
+### Connection health (built in)
+
+Both sides heartbeat: the server pings every WebSocket every 25 s (and replies
+to pings per RFC 6455), the client pings the server every 20 s. This keeps
+cloud proxies (ngrok, Render, Cloudflare…) from killing "idle" sockets, measures
+your latency (shown as a 🟢 pill in the toolbar), and detects half-open
+connections within seconds instead of minutes. `setNoDelay` is enabled, so
+moves aren't batched by Nagle's algorithm. A dropped player's seat shows
+**⚠️ OFFLINE** on every table, a bot covers it, and the player auto-reconnects
+into the exact same seat (their session token is kept for 90 s).
+
+### Hosting it online (play across the internet)
+
+The repo ships with `render.yaml` — push to GitHub, then on
+[Render](https://render.com): *New → Blueprint → pick the repo*. One service
+serves the site **and** the WebSocket.
+
+- **Free tier sleeps after ~15 min idle** — the first visitor waits 30–50 s and
+  it can feel "stuck". For real games use the **Starter** plan (always-on), or
+  [Railway](https://railway.app) / [Fly.io](https://fly.io) — both run a plain
+  Node server with WebSockets always-on for a few dollars a month.
+- Rooms live in memory: keep it at **one instance** (no autoscaling).
+- ngrok works for a quick session (`ngrok http 3000`), but tunnels add latency
+  and free tunnels drop idle connections — the built-in heartbeat + auto-resume
+  now survives that, but a real host is smoother.
+
+### Desktop & mobile app
+
+The game is a **PWA**: served over HTTPS (any of the hosts above), browsers
+offer **Install** (desktop Chrome/Edge: ⊕ icon in the address bar; Android:
+"Add to Home screen"; iOS Safari: Share → "Add to Home Screen"). It launches
+fullscreen like a native app, and single player works offline.
+
+To go further:
+- **Desktop**: wrap with [Tauri](https://tauri.app) (tiny, Rust) or Electron —
+  point the window at your hosted URL or bundle the static files.
+- **Mobile stores**: wrap with [Capacitor](https://capacitorjs.com) — the
+  whole game is static HTML/JS, so it drops straight in; multiplayer just needs
+  the hosted server URL.
+
+### Emotes & quick messages
+
+In an online game, tap **💬** to send an emoji reaction, a preset quick message
+("Nice play!", "Hurry up ⏳"…) or a short typed message — it pops up as a speech
+bubble at your seat on everyone's table. Rate-limited server-side.
+
+### Cinematics & sound
+
+Big moments get live-stream-style effects (all CSS 3D + synthesized audio, no
+assets, no dependencies — see `js/fx.js`):
+- **Black Queen lands** → full-screen takeover: lightning, shockwave rings, a
+  spinning 3D Q♠, falling queens, screen shake, thunder + tolling bells.
+- **Someone eats hearts** → a beating heart bursts over their seat with the
+  points, plus a soft thump-and-sigh sound.
+- **Hearts broken** → top banner sweep + 💔 rain + whoosh.
+- **Game over** → 3D tumbling confetti, trophy banner, brass-y fanfare.
+- **Emoji reactions** (multiplayer) → float up the screen like a TikTok live.
+
+Everything can be turned off per player: 🎨 → *Cinematic effects*.
+
+### Appearance (per player)
+
+Tap **🎨** (menu or in-game). Each player can pick — just for themselves:
+- **Card size** — 70 % to 140 % slider for your own hand.
+- **Table felt** — 6 themes (emerald, midnight, crimson, charcoal, royal, sand).
+- **Card back** — 10 designs.
+- **Card style** — classic illustrated deck, big-and-clean text, or
+  high-contrast night cards.
+- **Pre-select** — tick the option, then tap a card *before* your turn; it's
+  pinned 📌 and plays automatically the moment your turn arrives (tap again to
+  unpin).
+
 ## How to play
 
 Avoid winning tricks that contain penalty cards. **Lowest total score wins.**

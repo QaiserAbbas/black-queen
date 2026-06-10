@@ -4,6 +4,12 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>Black Queen — Card Game</title>
+  <meta name="theme-color" content="#0c5132" />
+  <link rel="manifest" href="manifest.json" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <link rel="apple-touch-icon" href="icon.svg" />
   <link rel="stylesheet" href="css/styles.css" />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>♛</text></svg>" />
 </head>
@@ -26,6 +32,7 @@
       <div class="btn-row" style="margin-top:0.8rem">
         <button class="btn ghost" id="btnRules">How to Play</button>
         <button class="btn ghost" id="btnSettingsMenu">Settings</button>
+        <button class="btn ghost" id="btnLookMenu">Appearance</button>
       </div>
     </section>
 
@@ -40,7 +47,7 @@
       </div>
       <div class="btn-row"><button class="btn" id="btnCreate">Create Room</button></div>
       <div class="field" style="margin-top:1.4rem">
-        <label for="mpCode">Or join an existing room <span style="text-transform:none;letter-spacing:0;color:#9fc3ad">(leave blank to join the only open game)</span></label>
+        <label for="mpCode">Or join an existing room <span class="lab-hint">Leave blank to join the only open game</span></label>
         <input type="text" id="mpCode" maxlength="4" placeholder="Room code (e.g. ABCD)" autocomplete="off" style="text-transform:uppercase;letter-spacing:0.3em" />
       </div>
       <div class="btn-row">
@@ -83,12 +90,27 @@
       <div class="toolbar">
         <div class="left">
           <div class="round-chip" id="roundChip">Round 1</div>
+          <div class="net-pill mp-only" id="netPill">🟢 online</div>
+          <div class="peers-chip mp-only" id="peersChip" title="Who's connected">👥</div>
         </div>
         <div class="right">
-          <button class="icon-btn" id="btnSound" title="Toggle sound">🔊</button>
+          <button class="icon-btn mp-only" id="btnEmote" title="Emotes &amp; messages">💬</button>
+          <button class="icon-btn" id="btnLook" title="Appearance">🎨</button>
+          <button class="icon-btn" id="btnMusic" title="Mute music (sound effects stay on)">🎵</button>
+          <button class="icon-btn" id="btnSound" title="Toggle all sound">🔊</button>
           <button class="icon-btn" id="btnScores" title="Scoreboard">📊</button>
           <button class="icon-btn" id="btnSettings" title="Settings">⚙️</button>
           <button class="icon-btn" id="btnQuit" title="Quit to menu">✕</button>
+        </div>
+      </div>
+
+      <!-- Emote / quick-message panel (multiplayer) -->
+      <div class="emote-panel" id="emotePanel">
+        <div class="emote-row" id="emoteEmojis"></div>
+        <div class="emote-row msgs" id="emoteMsgs"></div>
+        <div class="emote-custom">
+          <input type="text" id="emoteInput" maxlength="60" placeholder="Say something short…" autocomplete="off" />
+          <button class="btn small" id="btnEmoteSend">Send</button>
         </div>
       </div>
 
@@ -157,6 +179,47 @@
       <div class="modal" id="rulesModal"></div>
     </div>
 
+    <!-- Appearance: per-player card scale, felts, card backs, face templates -->
+    <div class="overlay" id="lookOverlay">
+      <div class="modal">
+        <h2>🎨 Appearance</h2>
+        <p style="color:#bfe0c9;font-size:0.85rem;margin-bottom:0.8rem">Just for you — other players keep their own look.</p>
+
+        <h3>Card Size</h3>
+        <div class="scale-row">
+          <input type="range" id="prefScale" min="0.7" max="1.4" step="0.05" />
+          <span id="prefScaleVal" style="font-weight:700;color:var(--gold-bright);min-width:48px;text-align:right">100%</span>
+        </div>
+
+        <h3>Table Felt</h3>
+        <div class="swatch-grid" id="prefTables"></div>
+
+        <h3>Card Back</h3>
+        <div class="swatch-grid backs" id="prefBacks"></div>
+
+        <h3>Card Style</h3>
+        <div class="swatch-grid faces" id="prefFaces"></div>
+
+        <h3>Music</h3>
+        <div class="swatch-grid faces" id="prefMusic"></div>
+
+        <h3>Play Helpers</h3>
+        <div class="set-row check">
+          <input type="checkbox" id="prefPreSelect" />
+          <label for="prefPreSelect">Pre-select a card before your turn (it plays automatically)</label>
+        </div>
+        <div class="set-row check">
+          <input type="checkbox" id="prefFx" />
+          <label for="prefFx">Cinematic effects (Queen takeover, banners, emoji rain)</label>
+        </div>
+
+        <div class="close-row">
+          <button class="btn ghost small" id="btnLookReset">Reset</button>
+          <button class="btn small" data-close="lookOverlay">Done</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Game over -->
     <div class="overlay" id="gameOverOverlay">
       <div class="modal">
@@ -177,10 +240,12 @@
 
   <!-- Scripts loaded in dependency order (classic scripts => works from file://) -->
   <script src="js/config.js"></script>
+  <script src="js/prefs.js"></script>
   <script src="js/cards.js"></script>
   <script src="js/ai.js"></script>
   <script src="js/engine.js"></script>
   <script src="js/net.js"></script>
+  <script src="js/fx.js"></script>
   <script src="js/sound.js"></script>
   <script src="js/ui.js"></script>
   <script src="js/main.js"></script>

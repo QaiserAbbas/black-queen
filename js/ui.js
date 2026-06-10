@@ -27,6 +27,8 @@
       this.indexOfSeat = {}; // seat name -> playerIndex
       this.legalSet = new Set();
       this.activeIndex = -1;
+      this.stagedId = null;   // pre-selected card (plays automatically on my turn)
+      this.peers = [];        // live presence info from the server
       this._bindStaticControls();
       this._buildMenuFan();
       // Re-fan the hand whenever the viewport changes (rotate / resize), so the
@@ -106,6 +108,33 @@
         document.body.appendChild(el);
       }
       el.classList.toggle('show', !!on);
+      if (on) this.setNetStatus('reconnecting');
+    }
+
+    /* ---- connection status pill (toolbar): online + latency / offline ----- */
+    setNetStatus(state, rtt) {
+      const el = document.getElementById('netPill');
+      if (!el) return;
+      el.classList.remove('online', 'offline', 'reconnecting');
+      el.classList.add(state);
+      if (state === 'online') el.textContent = '🟢 ' + (rtt != null ? rtt + ' ms' : 'online');
+      else if (state === 'reconnecting') el.textContent = '🟠 reconnecting…';
+      else el.textContent = '🔴 offline';
+    }
+
+    /* ---- live presence: "3/4 online" chip + hover detail ------------------ */
+    renderPeers(seats) {
+      this.peers = seats || [];
+      const el = document.getElementById('peersChip');
+      if (!el) return;
+      const humans = this.peers.filter((s) => !s.isBot || s.away);
+      const online = humans.filter((s) => s.connected).length;
+      const anyAway = this.peers.some((s) => s.away);
+      el.textContent = '👥 ' + online + '/' + (humans.length || 1);
+      el.classList.toggle('warn', anyAway);
+      el.title = this.peers.map((s) =>
+        s.name + (s.isBot ? ' — bot' : s.connected ? ' — online' : s.away ? ' — connection lost (bot covering)' : ' — offline')
+      ).join('\n');
     }
 
     /* ---- card DOM --------------------------------------------------------- */
@@ -116,9 +145,28 @@
       el.dataset.id = card.id;
       const q = this.engine.rules.queenCard;
       if (card.rank === q.rank && card.suit === q.suit) el.classList.add('is-queen');
-      // The face is the real vector card image from /cards.
-      el.style.backgroundImage = "url('cards/" + cardFile(card) + "')";
+      const face = (BQ.Prefs && BQ.Prefs.get().cardFace) || 'classic';
+      if (face === 'classic') {
+        // The face is the real vector card image from /cards.
+        el.style.backgroundImage = "url('cards/" + cardFile(card) + "')";
+      } else {
+        // Text-based template (simple / high-contrast) — indices + center pip.
+        el.classList.add('tpl', 'tpl-' + face);
+        el.innerHTML =
+          '<span class="ci tl">' + card.rank + '<i>' + card.symbol + '</i></span>' +
+          '<span class="cs">' + card.symbol + '</span>' +
+          '<span class="ci br">' + card.rank + '<i>' + card.symbol + '</i></span>';
+      }
       return el;
+    }
+
+    /* ---- re-render my hand after an appearance change --------------------- */
+    refreshCards() {
+      const e = this.engine;
+      if (!e || !e.players || !e.players.length) return;
+      const me = e.players[this.me];
+      if (me && me.hand) this.renderHumanHand(me.hand.filter(Boolean), false);
+      this.layoutHumanHand();
     }
 
     /* ---- badges (avatars + score) ---------------------------------------- */
@@ -137,8 +185,10 @@
         // Is this seat an AI/bot? (network: p.isBot; local: !isHuman)
         const isBot = (p.isBot != null) ? p.isBot : (p.isHuman === false);
         const isMe = (idx === this.me);
-        const tag = isBot ? '<span class="bot-tag">🤖 BOT</span>'
-                          : (isMe ? '<span class="you-tag">YOU</span>' : '');
+        // A dropped player's seat shows OFFLINE (a bot covers it until they return).
+        const tag = p.offline ? '<span class="off-tag">⚠️ OFFLINE</span>'
+                  : isBot ? '<span class="bot-tag">🤖 BOT</span>'
+                  : (isMe ? '<span class="you-tag">YOU</span>' : '');
         b.innerHTML =
           '<div class="avatar">' + p.name.charAt(0).toUpperCase() + '</div>' +
           '<div class="meta"><span class="pname">' + p.name + ' ' + tag +
@@ -152,12 +202,14 @@
         b.classList.toggle('stuck', stuck);
         b.classList.toggle('is-bot', isBot);
         b.classList.toggle('is-me', isMe);
+        b.classList.toggle('offline', !!p.offline);
       });
     }
 
     /* ---- round start: deal animation ------------------------------------- */
     onRoundStart(e) {
       $('#roundChip').textContent = 'Round ' + e.round;
+      this.stagedId = null;                // a new deal voids any pre-selected card
       this.closeOverlay('roundOverlay');   // close last round's summary (multiplayer auto-advance)
       this.renderBadges();
       this._clearTrick();
@@ -197,11 +249,26 @@
           // tidy up: drop the animation class once it has played
           el.addEventListener('animationend', () => el.classList.remove('dealing'), { once: true });
         }
-        el.addEventListener('click', () => this.onHumanCardClick(card.id, el));
+        // Hold Ctrl/⌘ (or long-press on touch) while playing = HARD PUNCH slam.
+        let longPress = false;
+        let pressTimer = 0;
+        el.addEventListener('pointerdown', () => {
+          longPress = false;
+          clearTimeout(pressTimer);
+          pressTimer = setTimeout(() => { longPress = true; }, 450);
+        });
+        el.addEventListener('pointerup', () => clearTimeout(pressTimer));
+        el.addEventListener('pointercancel', () => clearTimeout(pressTimer));
+        el.addEventListener('click', (ev) => {
+          const punch = !!(ev.ctrlKey || ev.metaKey || longPress);
+          longPress = false;
+          this.onHumanCardClick(card.id, el, punch);
+        });
         wrap.appendChild(el);
       });
       this.layoutHumanHand();
       this.applyPlayable();
+      this.applyStaged();
     }
 
     /* Fan the hand to fill the available width: every card spread evenly so its
@@ -213,9 +280,11 @@
       const cards = $$('.card', wrap);
       const n = cards.length;
       if (!n) return;
-      // Use the intended card width from CSS (not measured — avoids deal-anim scale).
-      const cardW = parseFloat(getComputedStyle(document.documentElement)
-        .getPropertyValue('--card-w')) || 90;
+      // Use the intended card width from CSS (not measured — avoids deal-anim scale),
+      // times the player's personal card-scale preference.
+      const docStyle = getComputedStyle(document.documentElement);
+      const scale = parseFloat(docStyle.getPropertyValue('--card-scale')) || 1;
+      const cardW = (parseFloat(docStyle.getPropertyValue('--card-w')) || 90) * scale;
       // The hand centers on screen and may overflow its column into the empty
       // side cells, so it can span almost the full viewport.
       const span = window.innerWidth * 0.94;
@@ -236,6 +305,22 @@
         b.classList.toggle('active', idx === e.playerIndex);
       });
       this.applyPlayable();
+
+      // My turn + a staged card: play it automatically (if it's legal).
+      if (e.playerIndex === this.me && this.stagedId != null) {
+        const id = this.stagedId;
+        this.stagedId = null;
+        this.applyStaged();
+        if (this.legalSet.has(id)) {
+          setTimeout(() => {
+            if (this.activeIndex === this.me && this.engine.phase === 'awaitHuman' && this.legalSet.has(id)) {
+              this.engine.playHuman(id);
+            }
+          }, 280);
+        } else {
+          this.toast('Pre-selected card not allowed now — pick another');
+        }
+      }
     }
 
     applyPlayable() {
@@ -248,8 +333,47 @@
       });
     }
 
-    onHumanCardClick(cardId, el) {
-      if (this.activeIndex !== this.me || this.engine.phase !== 'awaitHuman') return;
+    /* ---- emote / quick-message bubble at a player's seat ------------------ */
+    showEmote(seatIndex, text, name, isEmoji) {
+      const seatName = this.seatOf ? this.seatOf[seatIndex] : null;
+      const seatEl = seatName ? $('.seat.' + seatName) : null;
+      if (!seatEl || !$('#game').classList.contains('active')) {
+        // Not at the table (e.g. lobby) — fall back to a toast.
+        this.toast((name ? name + ': ' : '') + text);
+        return;
+      }
+      let b = seatEl.querySelector('.emote-bubble');
+      if (!b) {
+        b = document.createElement('div');
+        b.className = 'emote-bubble';
+        seatEl.appendChild(b);
+      }
+      b.classList.toggle('big', !!isEmoji);
+      b.textContent = text;   // textContent: player-typed text can never inject HTML
+      void b.offsetWidth;     // restart the pop animation
+      b.classList.add('show');
+      clearTimeout(b._t);
+      b._t = setTimeout(() => b.classList.remove('show'), isEmoji ? 2400 : 3600);
+      // live-stream style: emoji reactions also float up across the screen
+      if (isEmoji) { BQ.FX.floatEmoji(text, 6); BQ.Sound.pop(); }
+    }
+
+    /* ---- pre-select: stage a card before your turn, auto-play when it comes */
+    applyStaged() {
+      $$('#humanHand .card').forEach((el) =>
+        el.classList.toggle('staged', this.stagedId != null && el.dataset.id === this.stagedId));
+    }
+
+    onHumanCardClick(cardId, el, punch) {
+      if (this.activeIndex !== this.me || this.engine.phase !== 'awaitHuman') {
+        // Not my turn: with "pre-select" on, stage the card (tap again to clear).
+        if (BQ.Prefs && BQ.Prefs.get().preSelect) {
+          this.stagedId = (this.stagedId === cardId) ? null : cardId;
+          this.applyStaged();
+          if (this.stagedId) this.toast('Pre-selected — plays when your turn comes');
+        }
+        return;
+      }
       if (!this.legalSet.has(cardId)) {
         BQ.Sound.error();
         // If the only legal play is the Black Queen, say so explicitly.
@@ -262,7 +386,10 @@
         }
         return;
       }
-      this.engine.playHuman(cardId);
+      // _punchPending: consumed by onCardPlayed (engine emits synchronously in
+      // single player; in multiplayer the server echoes punch in the hint).
+      this._punchPending = !!punch;
+      this.engine.playHuman(cardId, !!punch);
     }
 
     /* ---- card played: fly into trick ------------------------------------- */
@@ -285,11 +412,23 @@
       const slot = document.createElement('div');
       slot.className = 'slot ' + seat;
       const card = this.cardEl(e.card, true);
-      card.style.animation = 'playPop 0.3s ease';
-      slot.appendChild(card);
-      $('#trick').appendChild(slot);
 
-      BQ.Sound.play();
+      // HARD PUNCH: server hint for any player, local flag for single player.
+      const punched = !!e.punch || (e.playerIndex === this.me && this._punchPending);
+      if (e.playerIndex === this.me) this._punchPending = false;
+
+      if (punched) {
+        card.classList.add('punched');
+        slot.appendChild(card);
+        $('#trick').appendChild(slot);
+        BQ.Sound.punch();
+        BQ.FX.punchSlam(card);
+      } else {
+        card.style.animation = 'playPop 0.3s ease';
+        slot.appendChild(card);
+        $('#trick').appendChild(slot);
+        BQ.Sound.play();
+      }
       this.renderBadges();
     }
 
@@ -297,20 +436,24 @@
       const seat = this.seatOf[e.winnerIndex];
       const name = this.engine.players[e.winnerIndex].name;
       const who = (e.winnerIndex === this.me) ? 'You' : name;
+      const badge = $('.badge[data-seat="' + seat + '"]');
       if (e.tookQueen && e.queenDisregarded) {
         // Rule: winner is immune by score — Queen points disregarded.
         BQ.Sound.trickWin();
         const extra = e.points > 0 ? ' (still +' + e.points + ' ♥)' : '';
         this.handResult('Hand ' + e.handNo, who + ' caught ♛ — disregarded' + extra, '♛', false);
+        BQ.FX.banner(who + ' caught the Queen', 'Immune — points disregarded', '♛', 'queen');
       } else if (e.tookQueen) {
         this.handResult('Hand ' + e.handNo, who + ' stuck with ♛ (+' + this.engine.rules.queenPoints + ')', '♛', true);
         this.queenSting(name, e.winnerIndex === this.me);
       } else if (e.points > 0) {
-        BQ.Sound.penalty();
+        BQ.Sound.heartHit();
         this.handResult('Hand ' + e.handNo, who + ' concede' + (who === 'You' ? '' : 's') + ' ' + e.points + ' pts', e.points, false);
+        BQ.FX.heartHit(badge, e.points);   // beating heart burst at the eater's seat
       } else {
         BQ.Sound.trickWin();
         this.handResult('Hand ' + e.handNo, who + ' win' + (who === 'You' ? '' : 's') + ' the hand', '✦', false);
+        if (e.winnerIndex === this.me) BQ.Sound.sparkle();
       }
       // The completed hand STAYS on the table. We just mark the winning card so
       // it's clear who took it; it is cleared only when the next lead is played.
@@ -327,6 +470,9 @@
       const f = $('#heartsFlash');
       f.classList.add('show');
       setTimeout(() => f.classList.remove('show'), 1400);
+      BQ.FX.emojiRain('💔', 14);
+      BQ.FX.banner('Hearts Broken!', 'Hearts can now be led', '💔', 'heart');
+      BQ.Sound.whoosh();
     }
 
     /* ---- round end -------------------------------------------------------- */
@@ -384,7 +530,18 @@
         ).join('') + '</tbody>';
 
       this.openOverlay('gameOverOverlay');
-      if (won) { BQ.Sound.win(); this.confetti(); } else { BQ.Sound.lose(); }
+      const winnerName = (e.ranking && e.ranking[0]) ? e.ranking[0].name : '';
+      if (won) {
+        BQ.Sound.win();
+        BQ.Sound.fanfare();
+        this.confetti();
+        BQ.FX.confetti3D(100);
+        BQ.FX.banner('🏆 You win!', 'Champion of the table', '👑', 'win');
+        BQ.FX.floatEmoji('🎉', 8);
+      } else {
+        BQ.Sound.lose();
+        BQ.FX.banner(winnerName + ' wins', 'Better luck next game', '🏆', 'gold');
+      }
     }
 
     /* ---- scoreboard modal ------------------------------------------------- */
@@ -506,9 +663,9 @@
       this._handResultTimer = setTimeout(() => el.classList.remove('show'), 2600);
     }
 
-    /* ---- Black Queen "sting": a mocking animation when a player gets stuck
-       with the Queen. Works in single-player AND multiplayer (each client sees
-       it for whoever was hit, personalised if it's them). --------------------*/
+    /* ---- Black Queen "sting": full-screen cinematic when a player gets stuck
+       with the Queen — lightning, shockwaves, a spinning 3D Q♠, queen rain and
+       a thunder-and-bells sting. Personalised if it's you. ------------------*/
     queenSting(name, isYou) {
       const tauntsYou = [
         'The Queen chose YOU 💀', 'Ouch! You grabbed the Black Queen 😩',
@@ -521,39 +678,12 @@
         'Everybody point at ' + name + ' 👉😂',
       ];
       const pool = isYou ? tauntsYou : tauntsThem;
-      // Vary the taunt without Date/Math seeding concerns — plain Math.random is fine here.
       const taunt = pool[Math.floor(Math.random() * pool.length)];
       const pts = (this.engine.rules && this.engine.rules.queenPoints) || 12;
 
-      const card = document.createElement('div');
-      card.className = 'queen-sting' + (isYou ? ' you' : '');
-      card.innerHTML =
-        '<div class="qs-card">Q<span>♠</span></div>' +
-        '<div class="qs-name">' + name + (isYou ? ' (You)' : '') + '</div>' +
-        '<div class="qs-taunt">' + taunt + '</div>' +
-        '<div class="qs-pts">+' + pts + '</div>';
-      document.body.appendChild(card);   // body (not #fx) so the screen-shake can't drag it
-
-      // a little rain of queens for extra mockery
-      for (let i = 0; i < 14; i++) {
-        const q = document.createElement('div');
-        q.className = 'queen-rain';
-        q.textContent = '♛';
-        q.style.left = Math.random() * 100 + 'vw';
-        q.style.animationDuration = (1.6 + Math.random() * 1.6) + 's';
-        q.style.animationDelay = (Math.random() * 0.5) + 's';
-        q.style.fontSize = (18 + Math.random() * 26) + 'px';
-        document.body.appendChild(q);
-        setTimeout(() => q.remove(), 3600);
-      }
-
-      // brief screen shake on the table
-      const shakeEl = document.getElementById('game') || document.getElementById('app');
-      if (shakeEl) { shakeEl.classList.add('shake'); setTimeout(() => shakeEl.classList.remove('shake'), 600); }
-
-      BQ.Sound.penalty();
-      requestAnimationFrame(() => card.classList.add('show'));
-      setTimeout(() => { card.classList.add('out'); setTimeout(() => card.remove(), 400); }, 2200);
+      BQ.Sound.queenDoom();
+      BQ.FX.queenCinematic(name, taunt, pts, isYou);
+      BQ.FX.floatEmoji('💀', 5);
     }
 
     confetti() {
