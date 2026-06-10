@@ -365,9 +365,35 @@
         this._endRound();
         return;
       }
+      // GAME-END RULE: the moment any player's running total (banked score +
+      // points taken so far this round) reaches the target, stop right here —
+      // the round is cut short and scored as it stands.
+      if (this._targetReachedMidRound()) {
+        this._endRound(true);
+        return;
+      }
       this.currentPlayerIndex = winnerIndex;
       this.trickLeaderIndex = winnerIndex;
       this._beginTurn();
+    }
+
+    // Has anyone's live total crossed the target mid-round?
+    _targetReachedMidRound() {
+      const r = this.rules;
+      const live = this.players.map((p) => p.totalScore + (p._penalty || 0));
+      if (!live.some((s) => s >= r.endScore)) return false;
+      // Don't cut a possible moon-shot short: if the crossing player holds
+      // EVERY penalty point taken so far, they may still shoot the moon and
+      // finish the round on the award instead. Play on — this is re-checked
+      // after every trick, and the moment another player takes a point the
+      // moon is dead and the game ends.
+      if (r.shootTheMoonEnabled) {
+        const raw = this.players.map((p) => p._penalty || 0);
+        const total = raw.reduce((a, b) => a + b, 0);
+        const crosser = live.findIndex((s) => s >= r.endScore);
+        if (raw[crosser] === total) return false;
+      }
+      return true;
     }
 
     // Penalty for a trick, charged to its winner. RULE: a winner whose total
@@ -390,7 +416,10 @@
     }
 
     /* ---- round scoring (RULES 4, 5, shoot-the-moon) ----------------------- */
-    _endRound() {
+    // cutShort: the round was stopped mid-play because a player crossed the
+    // target score. Penalties that judge a COMPLETED round (no-trick, the
+    // consecutive-zero streak) don't apply to a partial one.
+    _endRound(cutShort) {
       const r = this.rules;
       const breakdown = [];
       const roundScores = [];
@@ -426,20 +455,24 @@
           notes.push('Shot the moon!');
         }
 
+        if (cutShort && p.totalScore + score >= r.endScore) {
+          notes.push('Reached ' + r.endScore + ' — game ends');
+        }
+
         // RULES 4 & 5 combined (NEW): a player can receive at most ONE -12
         // "zero penalty" per round, and receiving any -12 resets their
         // consecutive-zero streak.
         let zeroPenaltyApplied = false;
 
         // RULE 4: won no trick at all this round.
-        if (r.noTrickRuleEnabled && p.tricksWon === 0) {
+        if (!cutShort && r.noTrickRuleEnabled && p.tricksWon === 0) {
           score += r.noTrickPenalty;
           notes.push('No tricks taken (' + r.noTrickPenalty + ')');
           zeroPenaltyApplied = true;
         }
 
         // RULE 5: consecutive zero-point rounds.
-        if (r.consecutiveZeroRuleEnabled) {
+        if (!cutShort && r.consecutiveZeroRuleEnabled) {
           if (raw[i] === 0) {
             if (zeroPenaltyApplied) {
               // already penalised this round (no-trick) — don't stack a 2nd -12,
@@ -471,6 +504,7 @@
         roundScores,
         totals: this.players.map((p) => p.totalScore),
         breakdown,
+        cutShort: !!cutShort,
       };
       this._setPhase('roundEnd');
       this.emit('roundEnd', this._lastRoundEnd);

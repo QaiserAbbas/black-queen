@@ -286,6 +286,19 @@ html, body {
 .card.is-queen {
   box-shadow: 0 6px 20px rgba(0,0,0,0.55), 0 0 0 2px var(--gold), 0 0 16px rgba(233,196,106,0.6);
 }
+/* …and her paper is gilded, not white — multiply tints the vector face so the
+   art stays crisp while the card itself reads instantly as THE Queen. */
+.card.is-queen.face {
+  background-color: #e3c98e;
+  background-blend-mode: multiply;
+}
+/* Text-template fallback: the Queen goes dark with gold markings. */
+.card.is-queen.tpl,
+.card.is-queen.tpl.black {
+  background: linear-gradient(160deg, #2c2c3e, #14141f);
+  border-color: var(--gold);
+  color: var(--gold-bright);
+}
 
 /* card back */
 .card.back {
