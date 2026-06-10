@@ -81,7 +81,7 @@
     { section: 'Play' },
     { key: 'heartsMustBeBroken', label: 'Hearts must be broken before leading', type: 'check' },
     { key: 'queenBreaksHearts', label: 'Black Queen also breaks hearts', type: 'check' },
-    { key: 'mustThrowQueen', label: 'Must throw Queen when void in lead suit', type: 'check' },
+    { key: 'mustThrowQueen', label: 'Must throw Queen when void, or onto a higher spade', type: 'check' },
     { key: 'shootTheMoonEnabled', label: 'Allow shooting the moon', type: 'check' },
     { key: 'dealerIsHighestScore', label: 'Highest score deals (Rule 7)', type: 'check' },
     { key: 'playDirection', label: 'Play direction', type: 'select', opts: [['right', 'Right (counter-clockwise)'], ['left', 'Left (clockwise)']] },
@@ -601,6 +601,9 @@
     const btn = $('#btnNextRound');
     const wait = $('#roundWait');
     if (!btn) return;
+    // Final hand (game over): ui.onRoundEnd already set this button to
+    // "See Final Results" — don't overwrite it with the next-round / ready label.
+    if (btn.dataset.final === '1') return;
     btn.disabled = false;
     if (isMultiplayer) {
       btn.textContent = "I'm Ready ✓";
@@ -1050,9 +1053,15 @@
     // for ALL players to confirm "ready".
     $('#btnNextRound').addEventListener('click', () => {
       BQ.Sound.click();
+      const btn = $('#btnNextRound');
+      // Final hand (game over): the round overlay is showing the deciding round's
+      // scorecard — its button reveals the results podium, not a new round.
+      if (btn.dataset.final === '1') {
+        ui.showGameOver();
+        return;
+      }
       if (isMultiplayer) {
         net.send({ t: 'ready' });
-        const btn = $('#btnNextRound');
         btn.disabled = true;
         btn.textContent = 'Waiting for others…';
       } else {

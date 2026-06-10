@@ -143,8 +143,12 @@ Special rules (all toggleable in Settings):
 - **Queen immunity:** a player at **≥ 80** points can't be charged the Queen.
   If they capture it, the 12 points are disregarded (they take only the hearts,
   so the round totals 13). Threshold is editable in Settings.
-- **Must throw the Queen:** if you can't follow the led suit (you're void) and
-  you hold the Black Queen, you're forced to discard it — you can't hold it back.
+- **Must throw the Queen:** you can't hold the Black Queen back when there's a
+  guaranteed way to get rid of it. Two cases force it: **(a)** you're **void**
+  in the led suit (discard it onto whoever wins), or **(b)** **spades is led and
+  a higher spade (K♠/A♠) is already on the table** — the Queen can no longer win
+  the trick, so you must dump it onto that higher spade instead of hiding it
+  behind a lower one.
   *Exception:* if the Queen's points are **guaranteed wasted** this trick (every
   player who could still win it is score-exempt), throwing becomes optional. If
   there's any chance a non-exempt player takes it, you must throw.

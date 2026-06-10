@@ -642,16 +642,37 @@
       $('#roundSummaryTable').innerHTML =
         '<thead><tr><th style="text-align:left">Player</th><th>Pts</th><th>From</th><th>Round</th><th>Total</th><th style="text-align:left">Notes</th></tr></thead>' +
         '<tbody>' + tbody + '</tbody>';
-      $('#roundTitle').textContent = 'Round ' + e.round + ' Complete';
+      const over = this.engine.phase === 'gameOver';
+      $('#roundTitle').textContent = over
+        ? 'Round ' + e.round + ' Complete — Game Over'
+        : 'Round ' + e.round + ' Complete';
 
-      // If the game is over, the engine already emitted gameOver; don't show next.
-      if (this.engine.phase === 'gameOver') return;
+      // Always show this round's scorecard — INCLUDING the final hand that ends
+      // the game (a player reached the target score). On that final hand the
+      // button reveals the results podium instead of starting another round
+      // (see showGameOver + main.js); we never skip silently past the scorecard.
+      const nextBtn = $('#btnNextRound');
+      if (nextBtn) {
+        nextBtn.dataset.final = over ? '1' : '';
+        if (over) {
+          nextBtn.disabled = false;
+          nextBtn.textContent = 'See Final Results 🏆';
+          const wait = $('#roundWait'); if (wait) wait.style.display = 'none';
+        } else {
+          nextBtn.textContent = 'Next Round'; // multiplayer relabels to "I'm Ready"
+        }
+      }
       this.openOverlay('roundOverlay');
     }
 
     /* ---- game over -------------------------------------------------------- */
+    // The engine ends the game the instant a player reaches the target score.
+    // We BUILD the results here but reveal them only AFTER the player has seen
+    // the final hand's scorecard — the round overlay's button calls
+    // showGameOver(). If no scorecard is up (e.g. reconnecting straight into a
+    // finished game, where no roundEnd precedes this), reveal immediately.
     onGameOver(e) {
-      this.closeOverlay('roundOverlay');
+      this._gameOver = e;
       const won = e.winnerIndex === this.me;
       $('#gameOverTitle').textContent = won ? '🏆 You Win!' : '🎴 Game Over';
 
@@ -670,7 +691,19 @@
           '<tr><td>' + (i + 1) + '</td><td class="name">' + r.name + '</td><td>' + r.score + '</td></tr>'
         ).join('') + '</tbody>';
 
+      // Nothing to tap through? Show the results now.
+      if (!$('#roundOverlay').classList.contains('show')) this.showGameOver();
+    }
+
+    // Reveal the results podium: closes the final scorecard and plays the
+    // win/lose effects. Called from the scorecard's "See Final Results" button,
+    // or directly by onGameOver when no scorecard is on screen.
+    showGameOver() {
+      const e = this._gameOver;
+      if (!e) return;
+      this.closeOverlay('roundOverlay');
       this.openOverlay('gameOverOverlay');
+      const won = e.winnerIndex === this.me;
       const winnerName = (e.ranking && e.ranking[0]) ? e.ranking[0].name : '';
       if (won) {
         BQ.Sound.win();

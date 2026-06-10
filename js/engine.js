@@ -170,7 +170,24 @@
 
       // Following: must follow the lead suit if able.
       const follow = hand.filter((c) => c.suit === this.leadSuit);
-      if (follow.length > 0) return follow;
+      if (follow.length > 0) {
+        // MUST-THROW QUEEN (following): if the led suit IS the Queen's suit and
+        // a HIGHER card of that suit is ALREADY on the table, the Queen can no
+        // longer win this trick — there's a guaranteed "way to throw" it onto
+        // the higher card's holder. So you're forced to play it now instead of
+        // hiding it behind a lower spade. Same exemption escape hatch as the
+        // void case below: if its points are GUARANTEED wasted (every possible
+        // winner is score-exempt), throwing becomes optional.
+        if (this.rules.mustThrowQueen) {
+          const q = this.rules.queenCard;
+          const queen = follow.find((c) => c.rank === q.rank && c.suit === q.suit);
+          if (queen && this._higherCardOnTable(queen) &&
+              !this._queenGuaranteedWasted(playerIndex)) {
+            return [queen];
+          }
+        }
+        return follow;
+      }
 
       // Void in the lead suit -> discarding. RULE: if you hold the Black Queen
       // you MUST throw it now — UNLESS its points are GUARANTEED wasted (every
@@ -183,6 +200,15 @@
         if (queen && !this._queenGuaranteedWasted(playerIndex)) return [queen];
       }
       return hand.slice(); // otherwise, any card goes
+    }
+
+    // Is a card of the SAME suit and a HIGHER value already on the table in the
+    // current trick? Used to detect that the Black Queen can be safely dumped
+    // onto a higher spade — it can no longer win the trick itself.
+    _higherCardOnTable(card) {
+      return this.currentTrick.some(
+        (t) => t.card.suit === card.suit && t.card.value > card.value
+      );
     }
 
     // Would the Black Queen's 12 points definitely be wasted if discarded into
