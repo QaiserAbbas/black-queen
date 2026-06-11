@@ -133,8 +133,9 @@
     emit(evt, payload) { (this.listeners[evt] || []).forEach((fn) => fn(payload)); }
 
     // Sending a move to the authoritative server (mirror of local playHuman).
-    // punch = hard-punch slam; the server echoes it so every table sees it.
-    playHuman(cardId, punch) { this.client.send({ t: 'play', cardId, punch: !!punch }); return true; }
+    // smash = slam style ('punch'/'fire'/…); the server echoes it so every
+    // table sees it. punch keeps older servers/clients working.
+    playHuman(cardId, smash) { this.client.send({ t: 'play', cardId, punch: !!smash, smash: smash || undefined }); return true; }
 
     get human() { return this.players[this.me]; }
 
@@ -192,6 +193,7 @@
               playerIndex: last.playerIndex, card: last.card,
               trick: this.currentTrick.slice(),
               punch: !!hint.punch,
+              smash: hint.smash || (hint.punch ? 'punch' : null),
             });
           }
           break;

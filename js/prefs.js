@@ -54,6 +54,11 @@
     mobileMode: 'auto',  // 'auto' | 'on' | 'off' — thumb-friendly mobile UI
     fx: true,            // big cinematic effects (queen takeover, banners, rains)
     attacks: true,       // show/hear attack taunts (lion, bomb…) — mute per player
+    smash: 'punch',      // card-smash style for ⌘/Ctrl-click (punch/fire/bolt/ice/bomb)
+    smashVoice: true,    // voice shout ("Kaboom!") on smash
+    // per-style shortcut: HOLD the key while clicking a card to slam with that
+    // style (rebindable via the key chips in the emote-panel picker)
+    smashKeys: { punch: '1', fire: '2', bolt: '3', ice: '4', bomb: '5' },
     music: 'lounge',     // ambient music style (see BQ.Sound.MUSIC_TRACKS)
     musicPrev: 'lounge', // last non-off style, restored by the 🎵 mute toggle
     // per-channel volumes, 0..1 (Settings → Sound Volumes)

@@ -29,6 +29,8 @@ const BQ = globalThis.BQ;
 
 // Cloud hosts (Render/Railway/Fly/Heroku) inject the port via process.env.PORT.
 const PORT = Number(process.env.PORT) || Number(process.argv[2]) || 4003;
+// Card-smash styles a client may request (mirrors BQ.FX.SMASHES in js/fx.js).
+const SMASH_KINDS = new Set(['punch', 'fire', 'bolt', 'ice', 'bomb']);
 const ROOT = __dirname;
 
 /* =============================================================================
@@ -660,10 +662,12 @@ function handleMessage(client, msg) {
       const e = room.engine;
       if (e.phase === 'awaitHuman' && e.currentPlayerIndex === client.seat) {
         // playHuman emits cardPlayed synchronously — the flag rides along into
-        // that one broadcast (hard-punch slam shown on every table).
-        room.punchNext = !!msg.punch;
+        // that one broadcast (card-smash slam shown on every table).
+        // smash = style id, whitelisted; legacy clients send punch:true only.
+        room.punchNext = SMASH_KINDS.has(msg.smash) ? msg.smash
+                       : (msg.punch ? 'punch' : null);
         e.playHuman(msg.cardId);
-        room.punchNext = false;
+        room.punchNext = null;
         // playing a card refunds the attack-taunt credit (one per move)
         const s = room.seats[client.seat];
         if (s) s.attackUsed = false;
@@ -784,7 +788,7 @@ function wireEngine(room) {
     broadcast(room, { name: 'roundStart', leaderIndex: ev.leaderIndex });
   });
   e.on('heartsBroken', () => broadcast(room, { name: 'heartsBroken' }));
-  e.on('cardPlayed', () => { broadcast(room, { name: 'cardPlayed', punch: !!room.punchNext }); room.punchNext = false; });
+  e.on('cardPlayed', () => { broadcast(room, { name: 'cardPlayed', punch: !!room.punchNext, smash: room.punchNext || undefined }); room.punchNext = null; });
   e.on('trickWon', (ev) => broadcast(room, {
     name: 'trickWon', winnerIndex: ev.winnerIndex, points: ev.points, handNo: ev.handNo,
     tookQueen: ev.tookQueen, queenDisregarded: ev.queenDisregarded,

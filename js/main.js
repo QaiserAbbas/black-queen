@@ -911,6 +911,76 @@
     }
   }
 
+  /* ---- Card-smash style picker (emote panel) -------------------------------
+   * Each style has its own shortcut: HOLD the key shown on its chip while
+   * clicking a card to slam with that style. Click a chip to rebind the key.
+   * ⌘/Ctrl-click and long-press use the selected (highlighted) style. The
+   * 🗣️ chip toggles the voice shout on impact. */
+  function setupSmashRow() {
+    const row = $('#smashRow');
+    if (!row) return;
+    const rebuild = () => {
+      row.innerHTML = '';
+      const lab = document.createElement('small');
+      lab.className = 'smash-lab';
+      lab.textContent = 'Smash — hold key + click card';
+      row.appendChild(lab);
+      BQ.FX.SMASHES.forEach((s) => {
+        const key = (BQ.Prefs.get().smashKeys || {})[s.id] || '';
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'smash-btn keyed' + (BQ.Prefs.get().smash === s.id ? ' sel' : '');
+        b.innerHTML = '<span></span><kbd></kbd>';
+        b.querySelector('span').textContent = s.emoji;
+        b.querySelector('kbd').textContent = key ? key.toUpperCase() : '·';
+        b.title = s.label + ' smash — hold ' + (key ? '“' + key.toUpperCase() + '”' : 'its key') +
+                  ' while clicking a card. Click the key chip to rebind.';
+        b.addEventListener('click', () => {
+          BQ.Prefs.set({ smash: s.id });
+          BQ.Sound.smash(s.id);   // instant preview: impact sound + shout
+          rebuild();
+        });
+        // the key chip rebinds instead of selecting
+        b.querySelector('kbd').addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          b.querySelector('kbd').textContent = '…';
+          b.classList.add('binding');
+          const capture = (kev) => {
+            kev.preventDefault();
+            kev.stopPropagation();
+            window.removeEventListener('keydown', capture, true);
+            const k = kev.key.toLowerCase();
+            if (k === 'escape') { rebuild(); return; }
+            if (k.length !== 1) { ui.toast('Press a single letter or number key'); rebuild(); return; }
+            const keys = Object.assign({}, BQ.Prefs.get().smashKeys);
+            // a key belongs to one style: stealing it unbinds the old owner
+            Object.keys(keys).forEach((st) => { if (keys[st] === k) delete keys[st]; });
+            keys[s.id] = k;
+            BQ.Prefs.set({ smashKeys: keys });
+            ui.toast(s.label + ' smash → hold “' + k.toUpperCase() + '” + click a card');
+            rebuild();
+          };
+          window.addEventListener('keydown', capture, true);
+        });
+        row.appendChild(b);
+      });
+      const v = document.createElement('button');
+      v.type = 'button';
+      v.className = 'smash-btn voice' + (BQ.Prefs.get().smashVoice === false ? '' : ' sel');
+      v.textContent = '🗣️';
+      v.title = 'Voice shout on smash (Kaboom!, Freeze!…)';
+      v.addEventListener('click', () => {
+        const on = BQ.Prefs.get().smashVoice === false;   // toggling back on
+        BQ.Prefs.set({ smashVoice: on });
+        BQ.Sound.click();
+        if (on) BQ.Sound.shout(BQ.Prefs.get().smash);
+        rebuild();
+      });
+      row.appendChild(v);
+    };
+    rebuild();
+  }
+
   function setupEmotePanel() {
     const emojis = $('#emoteEmojis');
     EMOTE_EMOJIS.forEach((e) => {
@@ -1049,6 +1119,7 @@
       BQ.Sound.click();
       $('#emotePanel').classList.toggle('show');
     });
+    setupSmashRow();
     setupEmotePanel();
     setupAttackRow();
     setupVoice();

@@ -63,6 +63,10 @@
     // the synthesized version automatically (missing files are fine).
     click: 'sounds/click.mp3',
     deal: 'sounds/deal.mp3',
+    smashFire: 'sounds/smash-fire.mp3',
+    smashBolt: 'sounds/smash-bolt.mp3',
+    smashIce: 'sounds/smash-ice.mp3',
+    smashBomb: 'sounds/smash-bomb.mp3',
     trickWin: 'sounds/trick-win.mp3',
     roundEnd: 'sounds/round-end.mp3',
     win: 'sounds/eaglaxle-gaming-victory-464016.mp3',
@@ -242,6 +246,72 @@
       }
       glide(110, 35, 0.35, 'sine', 0.22);          // sub-boom
       this.sparkle();
+    },
+
+    // Card-smash styles (punch / fire / bolt / ice / bomb). Each tries a real
+    // recording (sounds/smash-<style>.mp3, optional) before synthesizing, and
+    // tops the impact with a voice shout (Web Speech, toggleable in prefs).
+    smash(style) {
+      const c = ensure(); if (!c) return;
+      const t = c.currentTime;
+      if (style === 'fire') {
+        if (!sample('smashFire', 0.9)) {
+          noise(0.5, 0.4, 320, t, 'lowpass');                      // roar
+          glide(220, 60, 0.5, 'sawtooth', 0.14, t);
+          for (let i = 0; i < 5; i++) noise(0.05, 0.18, 2600, t + 0.06 + i * 0.07, 'bandpass'); // crackle
+        }
+      } else if (style === 'bolt') {
+        if (!sample('smashBolt', 0.9)) {
+          noise(0.09, 0.55, 1800, t, 'highpass');                  // the crack
+          glide(3000, 120, 0.18, 'sawtooth', 0.18, t);
+          noise(0.7, 0.3, 200, t + 0.06, 'lowpass');               // rolling rumble
+          glide(90, 35, 0.6, 'sine', 0.25, t + 0.05);
+        }
+      } else if (style === 'ice') {
+        if (!sample('smashIce', 0.9)) {
+          noise(0.16, 0.25, 5200, t, 'highpass');                  // shatter hiss
+          bell(1760, 0.5, 0.14, t);
+          bell(2349, 0.4, 0.1, t + 0.05);
+          [2093, 1568, 1319].forEach((f, i) => tone(f, 0.09, 'sine', 0.1, t + 0.08 + i * 0.06)); // falling tinkles
+        }
+      } else if (style === 'bomb') {
+        if (!sample('smashBomb', 0.9)) {
+          noise(0.6, 0.55, 200, t, 'lowpass');                     // BOOM
+          glide(140, 28, 0.7, 'sine', 0.4, t);
+          noise(0.25, 0.2, 1200, t + 0.12, 'bandpass');            // debris clatter
+        }
+      } else {
+        this.punch();
+        this.shout('punch');
+        return;
+      }
+      this.shout(style);
+    },
+
+    // Voice shout for a smash. Zero-dependency Web Speech synthesis; volume
+    // follows the punch channel, toggleable via the 🗣️ chip (prefs.smashVoice).
+    shout(style) {
+      if (!enabled) return;
+      if (BQ.Prefs && BQ.Prefs.get().smashVoice === false) return;
+      const S = root.speechSynthesis;
+      if (!S || typeof SpeechSynthesisUtterance === 'undefined') return;
+      const LINES = {
+        punch: ['Boom!', 'Take that!', 'Bam!'],
+        fire: ['Burn!', 'Feel the fire!', 'Scorched!'],
+        bolt: ['Thunder!', 'Zap!', 'Shocking!'],
+        ice: ['Freeze!', 'Ice cold!', 'Chill out!'],
+        bomb: ['Kaboom!', 'Fire in the hole!', 'Boom goes the dynamite!'],
+      };
+      const PITCH = { punch: 0.9, fire: 1.1, bolt: 1.3, ice: 1.2, bomb: 0.7 };
+      const lines = LINES[style] || LINES.punch;
+      try {
+        const u = new SpeechSynthesisUtterance(lines[Math.floor(Math.random() * lines.length)]);
+        u.rate = 1.25;
+        u.pitch = PITCH[style] || 1;
+        u.volume = Math.max(0, Math.min(1, volumes.master * volumes.punch));
+        S.cancel();   // a new smash always cuts off the previous shout
+        S.speak(u);
+      } catch (_) {}
     },
 
     shuffle() {
@@ -613,7 +683,7 @@
   const BUS_OF = {
     click: 'ui', hover: 'ui', error: 'ui', pop: 'ui',
     deal: 'cards', play: 'cards', shuffle: 'cards',
-    punch: 'punch',
+    punch: 'punch', smash: 'punch',
     trickWin: 'fx', penalty: 'fx', roundEnd: 'fx', win: 'fx', lose: 'fx',
     whoosh: 'fx', sparkle: 'fx', heartHit: 'fx', thunder: 'fx', queenDoom: 'fx', fanfare: 'fx',
     attack: 'fx', roar: 'fx',
@@ -633,7 +703,7 @@
     { id: 'master', label: 'Master volume' },
     { id: 'music', label: 'Music' },
     { id: 'cards', label: 'Cards (shuffle & play)' },
-    { id: 'punch', label: 'Hard punch' },
+    { id: 'punch', label: 'Card smash (punch, fire…)' },
     { id: 'fx', label: 'Effects (Queen, hearts, wins)' },
     { id: 'ui', label: 'Interface clicks' },
   ];

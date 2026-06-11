@@ -71,6 +71,28 @@
         if (chip.dataset.self === '1') BQ.Voice.toggleMute();
         else BQ.Voice.togglePeerMute(parseInt(chip.dataset.seat, 10));
       });
+      // Smash shortcut keys: HOLD a style's key (1–5 by default, rebindable in
+      // the emote panel) while clicking a card to slam it with that style.
+      // Tracked here so the card click handler can read the held style.
+      this._heldSmash = null;
+      window.addEventListener('keydown', (ev) => {
+        if (ev.repeat || ev.metaKey || ev.ctrlKey || ev.altKey) return;
+        const t = ev.target;
+        if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+        const keys = (BQ.Prefs && BQ.Prefs.get().smashKeys) || {};
+        const k = ev.key.toLowerCase();
+        for (const style in keys) {
+          if (keys[style] === k) { this._heldSmash = style; return; }
+        }
+      });
+      window.addEventListener('keyup', (ev) => {
+        if (!this._heldSmash) return;
+        const keys = (BQ.Prefs && BQ.Prefs.get().smashKeys) || {};
+        if (keys[this._heldSmash] === ev.key.toLowerCase()) this._heldSmash = null;
+      });
+      // released outside the page (tab switch, screenshot tools…)
+      window.addEventListener('blur', () => { this._heldSmash = null; });
+
       // Re-fan the hand whenever the viewport changes (rotate / resize), so the
       // cards always spread to use the available width.
       let raf = 0;
@@ -359,9 +381,13 @@
         el.addEventListener('pointerup', () => clearTimeout(pressTimer));
         el.addEventListener('pointercancel', () => clearTimeout(pressTimer));
         el.addEventListener('click', (ev) => {
-          const punch = !!(ev.ctrlKey || ev.metaKey || longPress);
+          const slam = !!(ev.ctrlKey || ev.metaKey || longPress);
           longPress = false;
-          this.onHumanCardClick(card.id, el, punch);
+          // a held shortcut key picks its style directly; ⌘/Ctrl/long-press
+          // falls back to the selected style from the emote-panel picker
+          const style = this._heldSmash ||
+            (slam ? ((BQ.Prefs && BQ.Prefs.get().smash) || 'punch') : null);
+          this.onHumanCardClick(card.id, el, style);
         });
         wrap.appendChild(el);
       });
@@ -488,7 +514,7 @@
         el.classList.toggle('staged', this.stagedId != null && el.dataset.id === this.stagedId));
     }
 
-    onHumanCardClick(cardId, el, punch) {
+    onHumanCardClick(cardId, el, smash) {
       if (this.activeIndex !== this.me || this.engine.phase !== 'awaitHuman') {
         // Not my turn: with "pre-select" on, stage the card (tap again to clear).
         if (BQ.Prefs && BQ.Prefs.get().preSelect) {
@@ -510,10 +536,10 @@
         }
         return;
       }
-      // _punchPending: consumed by onCardPlayed (engine emits synchronously in
-      // single player; in multiplayer the server echoes punch in the hint).
-      this._punchPending = !!punch;
-      this.engine.playHuman(cardId, !!punch);
+      // _smashPending: consumed by onCardPlayed (engine emits synchronously in
+      // single player; in multiplayer the server echoes the style in the hint).
+      this._smashPending = smash || null;
+      this.engine.playHuman(cardId, smash);
     }
 
     /* ---- card played: fly into trick ------------------------------------- */
@@ -542,15 +568,19 @@
       slot.appendChild(card);
       $('#trick').appendChild(slot);
 
-      // HARD PUNCH: server hint for any player, local flag for single player.
-      const punched = !!e.punch || (e.playerIndex === this.me && this._punchPending);
-      if (e.playerIndex === this.me) this._punchPending = false;
+      // CARD SMASH: server hint for any player, local flag for single player.
+      // e.smash carries the style ('punch'/'fire'/…); e.punch is the legacy flag.
+      const smash = e.smash ||
+        (e.playerIndex === this.me && this._smashPending) ||
+        (e.punch ? 'punch' : null);
+      if (e.playerIndex === this.me) this._smashPending = null;
+      const punched = !!smash;
 
       const land = () => {
-        if (punched) {
-          card.classList.add('punched');
-          BQ.Sound.punch();
-          BQ.FX.punchSlam(card);
+        if (smash) {
+          card.classList.add('punched', 'smash-' + smash);
+          BQ.Sound.smash(smash);
+          BQ.FX.smash(smash, card);
         } else {
           BQ.Sound.play();
         }

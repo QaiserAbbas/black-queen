@@ -165,6 +165,19 @@
         g.moveTo(x, y);
         g.lineTo(x - p.vx * 0.07, y - p.vy * 0.07);
         g.stroke();
+
+      } else if (p.kind === 'bolt') {
+        // jagged lightning polyline; alpha flickers so it reads as electricity
+        g.globalAlpha = Math.max(0, (1 - t) * (0.55 + Math.random() * 0.45));
+        g.strokeStyle = p.color || '#bfe3ff';
+        g.lineWidth = p.width || 3;
+        g.lineCap = 'round';
+        g.lineJoin = 'round';
+        g.shadowColor = p.color || '#bfe3ff';
+        g.shadowBlur = 18;
+        g.beginPath();
+        p.pts.forEach((pt, i) => (i ? g.lineTo(pt.x, pt.y) : g.moveTo(pt.x, pt.y)));
+        g.stroke();
       }
       g.restore();
     },
@@ -256,13 +269,39 @@
       }
     },
 
+    /* =========================================================================
+     * CARD SMASH styles — pick yours in the emote panel; ⌘/Ctrl-click or
+     * long-press a card to slam it down with the chosen effect. Each style
+     * has its own impact character: punch (gold shock), fire (rising flames),
+     * bolt (sky strike), ice (brittle shatter), bomb (heavy blast).
+     * =======================================================================*/
+    SMASHES: [
+      { id: 'punch', emoji: '👊', label: 'Punch' },
+      { id: 'fire', emoji: '🔥', label: 'Fire' },
+      { id: 'bolt', emoji: '⚡', label: 'Thunder' },
+      { id: 'ice', emoji: '❄️', label: 'Ice' },
+      { id: 'bomb', emoji: '💣', label: 'Bomb' },
+    ],
+
+    smash(style, targetEl) {
+      if (style === 'fire') return this.fireSlam(targetEl);
+      if (style === 'bolt') return this.boltSlam(targetEl);
+      if (style === 'ice') return this.iceSlam(targetEl);
+      if (style === 'bomb') return this.bombSlam(targetEl);
+      return this.punchSlam(targetEl);
+    },
+
+    // Impact point of a slammed card (viewport center as a fallback).
+    _impact(targetEl) {
+      const r = targetEl ? targetEl.getBoundingClientRect()
+                         : { left: innerWidth / 2 - 40, top: innerHeight / 2 - 50, width: 80, height: 100 };
+      return { cx: r.left + r.width / 2, cy: r.top + r.height / 2 };
+    },
+
     /* ---- HARD PUNCH slam: flash + shockwaves + sparks + streaks ------------ */
     punchSlam(targetEl) {
       if (!fxOn()) return;
-      const r = targetEl ? targetEl.getBoundingClientRect()
-                         : { left: innerWidth / 2 - 40, top: innerHeight / 2 - 50, width: 80, height: 100 };
-      const cx = r.left + r.width / 2;
-      const cy = r.top + r.height / 2;
+      const { cx, cy } = this._impact(targetEl);
 
       CV.add({ kind: 'flash', x: cx, y: cy, vx: 0, vy: 0, size: 130, ttl: 0.3 });
       CV.add({ kind: 'ring', x: cx, y: cy, vx: 0, vy: 0, size: 190, width: 7, color: '#ffd877', ttl: 0.65 });
@@ -286,6 +325,176 @@
           vx: Math.cos(a) * sp * 1.5, vy: Math.sin(a) * sp * 1.5,
           drag: 3, width: rnd(1.5, 3),
           ttl: rnd(0.25, 0.4),
+        });
+      }
+      shake();
+    },
+
+    /* ---- FIRE slam: flames erupt and rise, embers spit, smoke drifts up ---- */
+    fireSlam(targetEl) {
+      if (!fxOn()) return;
+      const { cx, cy } = this._impact(targetEl);
+
+      CV.add({ kind: 'flash', x: cx, y: cy, vx: 0, vy: 0, size: 120, ttl: 0.28 });
+      CV.add({ kind: 'ring', x: cx, y: cy, vx: 0, vy: 0, size: 180, width: 6, color: '#ff7a3c', ttl: 0.6 });
+
+      // flames burst out, then heat carries them upward (negative gravity)
+      for (let i = 0; i < 12; i++) {
+        const a = (i / 12) * Math.PI * 2 + rnd(0, 0.5);
+        const sp = rnd(120, 300);
+        CV.add({
+          kind: 'glyph', glyph: '🔥',
+          x: cx, y: cy,
+          vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 80,
+          gravity: -140, drag: 1.8, vr: rnd(-3, 3),
+          size: rnd(16, 32), shadow: 'rgba(255,122,60,0.85)',
+          ttl: rnd(0.7, 1.1),
+        });
+      }
+      // ember streaks
+      for (let i = 0; i < 10; i++) {
+        const a = rnd(0, Math.PI * 2);
+        const sp = rnd(260, 520);
+        CV.add({
+          kind: 'streak', color: 'rgba(255,140,60,0.9)',
+          x: cx, y: cy,
+          vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+          drag: 2.6, width: rnd(1.5, 3),
+          ttl: rnd(0.25, 0.45),
+        });
+      }
+      // smoke puffs drift up after the burst
+      setTimeout(() => {
+        for (let i = 0; i < 4; i++) {
+          CV.add({
+            kind: 'glyph', glyph: '💨',
+            x: cx + rnd(-30, 30), y: cy - rnd(0, 20),
+            vx: rnd(-15, 15), vy: -rnd(40, 80),
+            drag: 0.6, size: rnd(18, 30),
+            ttl: rnd(0.9, 1.4),
+          });
+        }
+      }, 180);
+      shake();
+    },
+
+    /* ---- THUNDER slam: a jagged bolt strikes from the sky — sharp & instant  */
+    boltSlam(targetEl) {
+      if (!fxOn()) return;
+      const { cx, cy } = this._impact(targetEl);
+
+      // jagged main bolt + a thinner white core, offset for depth
+      const pts = [];
+      let bx = cx + rnd(-40, 40), by = -10;
+      while (by < cy - 14) {
+        pts.push({ x: bx, y: by });
+        by += rnd(34, 64);
+        bx += rnd(-28, 28);
+      }
+      pts.push({ x: cx, y: cy });
+      CV.add({ kind: 'bolt', pts, x: 0, y: 0, vx: 0, vy: 0, width: 4, color: '#9fd0ff', ttl: 0.3 });
+      CV.add({ kind: 'bolt', pts: pts.map((p) => ({ x: p.x + rnd(-5, 5), y: p.y })), x: 0, y: 0, vx: 0, vy: 0, width: 1.6, color: '#ffffff', ttl: 0.24 });
+
+      CV.add({ kind: 'flash', x: cx, y: cy, vx: 0, vy: 0, size: 160, ttl: 0.22 });
+      CV.add({ kind: 'ring', x: cx, y: cy, vx: 0, vy: 0, size: 200, width: 6, color: '#9fd0ff', ttl: 0.55 });
+
+      // fast electric sparks — sharper and quicker than the punch
+      for (let i = 0; i < 10; i++) {
+        const a = (i / 10) * Math.PI * 2 + rnd(0, 0.5);
+        const sp = rnd(300, 560);
+        CV.add({
+          kind: 'glyph', glyph: '⚡',
+          x: cx, y: cy,
+          vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+          gravity: 400, drag: 3, vr: rnd(-8, 8),
+          size: rnd(13, 24), shadow: 'rgba(159,208,255,0.9)',
+          ttl: rnd(0.4, 0.7),
+        });
+        CV.add({
+          kind: 'streak', color: 'rgba(191,227,255,0.9)',
+          x: cx, y: cy,
+          vx: Math.cos(a) * sp * 1.4, vy: Math.sin(a) * sp * 1.4,
+          drag: 3.5, width: rnd(1.5, 2.5),
+          ttl: rnd(0.18, 0.3),
+        });
+      }
+      shake();
+    },
+
+    /* ---- ICE slam: brittle shatter — shards fly fast and stop dead, then
+       snowflakes drift down slowly. Crisp, no screen shake (glass, not mass). */
+    iceSlam(targetEl) {
+      if (!fxOn()) return;
+      const { cx, cy } = this._impact(targetEl);
+
+      CV.add({ kind: 'flash', x: cx, y: cy, vx: 0, vy: 0, size: 110, ttl: 0.24 });
+      CV.add({ kind: 'ring', x: cx, y: cy, vx: 0, vy: 0, size: 180, width: 5, color: '#7fdcff', ttl: 0.6 });
+      setTimeout(() => CV.add({ kind: 'ring', x: cx, y: cy, vx: 0, vy: 0, size: 230, width: 3, color: '#cdf2ff', ttl: 0.6 }), 90);
+
+      // shards: fast out, heavy drag = sudden brittle stop
+      for (let i = 0; i < 14; i++) {
+        const a = (i / 14) * Math.PI * 2 + rnd(0, 0.4);
+        const sp = rnd(280, 520);
+        CV.add({
+          kind: 'streak', color: 'rgba(191,234,255,0.95)',
+          x: cx, y: cy,
+          vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+          drag: 5, width: rnd(1.5, 3),
+          ttl: rnd(0.2, 0.35),
+        });
+      }
+      // snowflakes drift down after the shatter
+      for (let i = 0; i < 9; i++) {
+        const a = (i / 9) * Math.PI * 2 + rnd(0, 0.6);
+        CV.add({
+          kind: 'glyph', glyph: i % 3 ? '❄️' : '✨',
+          x: cx + Math.cos(a) * 24, y: cy + Math.sin(a) * 20,
+          vx: Math.cos(a) * rnd(40, 110), vy: Math.sin(a) * rnd(40, 90) - 40,
+          gravity: 90, drag: 1.2, vr: rnd(-2, 2),
+          swayAmp: rnd(6, 16), swayFreq: rnd(2, 4),
+          size: rnd(13, 24), shadow: 'rgba(127,220,255,0.8)',
+          ttl: rnd(1, 1.6),
+        });
+      }
+    },
+
+    /* ---- BOMB slam: heavy blast — big flash, double ring, tumbling debris -- */
+    bombSlam(targetEl) {
+      if (!fxOn()) return;
+      const { cx, cy } = this._impact(targetEl);
+
+      CV.add({ kind: 'flash', x: cx, y: cy, vx: 0, vy: 0, size: 170, ttl: 0.34 });
+      CV.add({ kind: 'glyph', glyph: '💥', x: cx, y: cy, vx: 0, vy: 0, size: 86, grow: true, pulse: 10, shadow: 'rgba(255,90,78,0.9)', ttl: 0.55 });
+      CV.add({ kind: 'ring', x: cx, y: cy, vx: 0, vy: 0, size: 220, width: 8, color: '#ff5a4e', ttl: 0.7 });
+      setTimeout(() => CV.add({ kind: 'ring', x: cx, y: cy, vx: 0, vy: 0, size: 280, width: 5, color: '#ffd877', ttl: 0.75 }), 130);
+
+      // fire + spark burst
+      for (let i = 0; i < 10; i++) {
+        const a = (i / 10) * Math.PI * 2 + rnd(0, 0.5);
+        const sp = rnd(200, 440);
+        CV.add({
+          kind: 'glyph', glyph: i % 2 ? '🔥' : '✨',
+          x: cx, y: cy,
+          vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 60,
+          gravity: 520, drag: 2.2, vr: rnd(-5, 5),
+          size: rnd(14, 28), shadow: 'rgba(255,90,78,0.8)',
+          ttl: rnd(0.6, 1),
+        });
+      }
+      // heavy tumbling debris — confetti rects with real gravity
+      const colors = ['#5a5a5a', '#7a4a2a', '#c0392b', '#3a3a3a'];
+      for (let i = 0; i < 12; i++) {
+        const a = rnd(0, Math.PI * 2);
+        const sp = rnd(150, 380);
+        CV.add({
+          kind: 'rect',
+          x: cx, y: cy,
+          vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 140,
+          gravity: 700, drag: 0.8,
+          vr: rnd(-6, 6), vrX: rnd(4, 12),
+          w: rnd(5, 10), h: rnd(7, 14),
+          color: colors[i % colors.length],
+          ttl: rnd(0.8, 1.3),
         });
       }
       shake();
