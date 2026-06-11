@@ -95,6 +95,8 @@
         </div>
         <div class="right">
           <button class="icon-btn" id="btnEmote" title="Emotes &amp; messages">💬</button>
+          <button class="icon-btn mp-only" id="btnVoice" title="Join voice chat">🎤</button>
+          <button class="icon-btn mp-only voice-mic" id="btnMic" title="Mute mic" style="display:none">🎙️</button>
           <button class="icon-btn" id="btnLook" title="Appearance">🎨</button>
           <button class="icon-btn" id="btnMusic" title="Mute music (sound effects stay on)">🎵</button>
           <button class="icon-btn" id="btnSound" title="Toggle all sound">🔊</button>
@@ -144,6 +146,8 @@
       <!-- mobile mode: thumb-zone action bar (emotes · attacks · menu) -->
       <div class="mobile-bar" id="mobileBar">
         <button class="mbar-btn" id="btnMobileEmote" title="Emotes &amp; messages">💬</button>
+        <button class="mbar-btn mp-only" id="btnMobileVoice" title="Join voice chat">🎤</button>
+        <button class="mbar-btn mp-only voice-mic" id="btnMobileMic" title="Mute mic" style="display:none">🎙️</button>
         <div class="mbar-attacks" id="mbarAttacks"></div>
         <button class="mbar-btn" id="btnMobileMenu" title="Menu">☰</button>
       </div>
@@ -332,6 +336,7 @@
   <script src="js/ai.js"></script>
   <script src="js/engine.js"></script>
   <script src="js/net.js"></script>
+  <script src="js/voice.js"></script>
   <script src="js/fx.js"></script>
   <script src="js/sound.js"></script>
   <script src="js/ui.js"></script>

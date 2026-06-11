@@ -410,6 +410,11 @@
     });
     net.on('emote', (m) => ui.showEmote(m.seat, m.text, m.name, true));
     net.on('chat', (m) => ui.showEmote(m.seat, m.text, m.name, false));
+    // Voice chat (WebRTC) — server relays the roster + signaling; Voice does
+    // the P2P audio. seatOf reads netEngine.me live (set once the game starts).
+    BQ.Voice.attach(net, () => (netEngine ? netEngine.me : -1));
+    net.on('voice', (m) => BQ.Voice.onRoster(m.seats));
+    net.on('rtc', (m) => BQ.Voice.onSignal(m.from, m.data));
     // attack taunt — pops up at the ATTACKER's seat on every viewer's table
     // (muteable per player: 🎨)
     net.on('attack', (m) => {
@@ -644,6 +649,7 @@
   function hidePause() { ui.closeOverlay('pauseOverlay'); }
 
   function leaveMultiplayer() {
+    if (BQ.Voice) BQ.Voice.leave();                     // hang up audio + close peers
     if (net) { net.send({ t: 'leave' }); }
     clearSession();                                     // don't auto-resume after leaving on purpose
     if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
@@ -829,6 +835,39 @@
     document.querySelectorAll('.attack-btn').forEach((b) => { b.disabled = !attackCredit; });
   }
 
+  // Voice chat controls: 🎤 joins/leaves the WebRTC audio mesh; 🎙️ (shown only
+  // while in the call) mutes the mic. State pushed back from BQ.Voice keeps the
+  // button glyphs/colors in sync with the actual call/mute state.
+  function setupVoice() {
+    if (!BQ.Voice) return;
+    // Two button pairs render the same state: desktop toolbar + mobile thumb-bar
+    // (the desktop toolbar's .right is hidden in mobile mode, so mobile needs
+    // its own controls). Each pair = a join/leave button + a mute button.
+    const voiceBtns = ['#btnVoice', '#btnMobileVoice'].map($).filter(Boolean);
+    const micBtns = ['#btnMic', '#btnMobileMic'].map($).filter(Boolean);
+    if (!voiceBtns.length) return;
+
+    BQ.Voice.onError = (msg) => { ui.toast(msg); BQ.Sound.error(); };
+    BQ.Voice.onMember = (info) => ui.setVoiceMember(info);
+    BQ.Voice.onState = (st) => {
+      voiceBtns.forEach((b) => {
+        b.classList.toggle('in-call', st.inCall);
+        b.textContent = st.inCall ? '📞' : '🎤';
+        b.title = st.inCall ? 'Leave voice chat' : 'Join voice chat';
+      });
+      micBtns.forEach((b) => {
+        b.style.display = st.inCall ? '' : 'none';
+        b.classList.toggle('muted', st.muted);
+        b.textContent = st.muted ? '🔇' : '🎙️';
+        b.title = st.muted ? 'Unmute mic' : 'Mute mic';
+      });
+      if (!st.inCall) ui.clearVoice();
+    };
+
+    voiceBtns.forEach((b) => b.addEventListener('click', () => { BQ.Sound.click(); BQ.Voice.toggle(); }));
+    micBtns.forEach((b) => b.addEventListener('click', () => { BQ.Sound.click(); BQ.Voice.toggleMute(); }));
+  }
+
   function setupAttackRow() {
     const row = $('#attackDock');
     BQ.FX.ATTACKS.forEach((a) => {
@@ -1012,6 +1051,7 @@
     });
     setupEmotePanel();
     setupAttackRow();
+    setupVoice();
 
     // Mobile bottom bar + menu sheet
     $('#btnMobileEmote').addEventListener('click', () => {

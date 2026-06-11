@@ -12,7 +12,7 @@
 
 'use strict';
 
-const CACHE = 'bq-v3';
+const CACHE = 'bq-v4';
 const CORE = [
   '/',
   '/index.html',
@@ -23,6 +23,7 @@ const CORE = [
   '/js/ai.js',
   '/js/engine.js',
   '/js/net.js',
+  '/js/voice.js',
   '/js/fx.js',
   '/js/sound.js',
   '/js/ui.js',

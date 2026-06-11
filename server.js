@@ -339,6 +339,24 @@ function broadcastPresence(room, note) {
   const payload = presenceState(room);
   if (note) payload.note = note;        // { kind:'lost'|'back'|'left', name }
   sendAll(room, payload);
+  // Voice roster tracks live, connected seats — refresh it whenever presence
+  // shifts so a dropped player's peers tear their audio link down.
+  broadcastVoice(room);
+}
+
+// Seats currently opted into voice chat AND actually connected. Media is pure
+// P2P (WebRTC); the server only relays signaling and publishes this roster so
+// each client knows who to dial.
+function voiceRoster(room) {
+  const out = [];
+  room.seats.forEach((s, i) => {
+    if (s.voice && s.clientId && clients.get(s.clientId)) out.push(i);
+  });
+  return out;
+}
+
+function broadcastVoice(room) {
+  sendAll(room, { t: 'voice', seats: voiceRoster(room) });
 }
 
 // A human who just dropped (refresh / Wi-Fi blip) keeps their EXACT turn for a
@@ -465,6 +483,29 @@ function handleMessage(client, msg) {
         .replace(/\s+/g, ' ').trim().slice(0, msg.t === 'emote' ? 8 : 60);
       if (!text) break;
       sendAll(room, { t: msg.t, seat: client.seat, name: client.name, text });
+      break;
+    }
+    // Voice chat presence: this seat is opting in/out of the audio mesh. We
+    // republish the roster so every client (re)dials the right peers.
+    case 'voice': {
+      const room = rooms.get(client.roomCode);
+      if (!room || client.seat < 0) break;
+      const seat = room.seats[client.seat];
+      if (!seat) break;
+      seat.voice = !!msg.on;
+      broadcastVoice(room);
+      break;
+    }
+    // WebRTC signaling relay: forward an opaque offer/answer/ICE blob to one
+    // target seat in the same room. Media itself never touches the server.
+    case 'rtc': {
+      const room = rooms.get(client.roomCode);
+      if (!room || client.seat < 0) break;
+      const to = msg.to | 0;
+      const seat = room.seats[to];
+      if (!seat || !seat.clientId) break;
+      const c = clients.get(seat.clientId);
+      if (c) c.send({ t: 'rtc', from: client.seat, data: msg.data });
       break;
     }
     case 'create': {

@@ -416,6 +416,44 @@ html, body {
 }
 .icon-btn:hover { background: rgba(233,196,106,0.25); }
 
+/* voice chat button states */
+.icon-btn.in-call { background: rgba(46,160,87,0.85); border-color: #3fb950; }
+.icon-btn.in-call:hover { background: rgba(46,160,87,1); }
+.icon-btn.voice-mic { background: rgba(46,160,87,0.85); border-color: #3fb950; }
+.icon-btn.voice-mic:hover { background: rgba(46,160,87,1); }
+.icon-btn.voice-mic.muted { background: rgba(200,60,60,0.85); border-color: #e5534b; }
+.icon-btn.voice-mic.muted:hover { background: rgba(200,60,60,1); }
+
+/* per-member voice indicator on each seat badge (signal · talking · mute) */
+.voice-chip {
+  display: inline-flex; align-items: center; gap: 4px; margin-left: 6px;
+  vertical-align: middle; line-height: 1;
+}
+.voice-chip[data-self="0"] { cursor: pointer; }
+.voice-chip .vmic { font-size: 0.9rem; }
+.voice-chip .vmic.off { filter: grayscale(1); opacity: 0.7; }
+.voice-chip .vmute { font-size: 0.8rem; }
+.vsig { display: inline-flex; align-items: flex-end; gap: 2px; height: 13px; }
+.vsig i { width: 3px; border-radius: 1px; background: rgba(255,255,255,0.25); }
+.vsig i:nth-child(1) { height: 5px; }
+.vsig i:nth-child(2) { height: 9px; }
+.vsig i:nth-child(3) { height: 13px; }
+.vsig.b1 i:nth-child(-n+1) { background: #e5534b; }
+.vsig.b2 i:nth-child(-n+2) { background: #e5c93f; }
+.vsig.b3 i:nth-child(-n+3) { background: #3fb950; }
+.vsig.b0 i { animation: vsig-pulse 1s ease-in-out infinite; }
+.vsig.lost { color: #e5534b; font-size: 0.85rem; }
+@keyframes vsig-pulse { 50% { opacity: 0.35; } }
+/* live speaker: green ring + soft pulse on the badge */
+.badge.voice-talking {
+  border-color: #3fb950 !important;
+  box-shadow: 0 0 0 2px #3fb950, 0 0 16px rgba(63,185,80,0.6);
+  animation: talk-pulse 1.1s ease-in-out infinite;
+}
+@keyframes talk-pulse {
+  50% { box-shadow: 0 0 0 3px #3fb950, 0 0 22px rgba(63,185,80,0.85); }
+}
+
 /* ---------- Modals (scoreboard / settings / round / gameover) ------------ */
 .overlay {
   position: absolute; inset: 0; background: rgba(0,0,0,0.6);
@@ -1275,6 +1313,9 @@ body.mobile #game .mobile-bar {
   border-radius: 13px;
 }
 .mbar-btn:active { background: rgba(233,196,106,0.3); }
+.mbar-btn.in-call { background: rgba(46,160,87,0.85); border-color: #3fb950; }
+.mbar-btn.voice-mic { background: rgba(46,160,87,0.85); border-color: #3fb950; }
+.mbar-btn.voice-mic.muted { background: rgba(200,60,60,0.85); border-color: #e5534b; }
 .mbar-attacks { flex: 1; display: flex; justify-content: center; min-width: 0; }
 .mbar-attacks .attack-dock { position: static; display: flex; gap: 0.3rem; }
 body.mobile .attack-dock .attack-btn { width: 44px; height: 44px; padding: 0; font-size: 1.2rem; }
@@ -1328,7 +1369,7 @@ body.mobile .emote-panel {
 /* scroll mode: a zoomed hand overflows sideways and scrolls instead of
    squeezing cards into slivers (min half a card always visible) */
 body.hand-scroll .hand.south {
-  max-width: 96vw;
+  max-width: 96vw; 
   /* overflow-x: auto; overflow-y: hidden; */
   padding: 36px 10px 8px;            /* headroom for the playable/staged lift */
   -webkit-overflow-scrolling: touch;

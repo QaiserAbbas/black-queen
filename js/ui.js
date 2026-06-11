@@ -57,8 +57,20 @@
       this.activeIndex = -1;
       this.stagedId = null;   // pre-selected card (plays automatically on my turn)
       this.peers = [];        // live presence info from the server
+      this.voiceState = {};   // playerIndex -> { talking, signal, peerMuted, self, muted }
       this._bindStaticControls();
       this._buildMenuFan();
+      // Tapping a member's voice chip toggles mute (own mic for self, that
+      // member's incoming audio for others). Delegated so it survives the
+      // badge re-renders that recreate the chip.
+      const game = $('#game');
+      if (game) game.addEventListener('click', (ev) => {
+        const chip = ev.target.closest && ev.target.closest('.voice-chip');
+        if (!chip || !BQ.Voice) return;
+        ev.stopPropagation();
+        if (chip.dataset.self === '1') BQ.Voice.toggleMute();
+        else BQ.Voice.togglePeerMute(parseInt(chip.dataset.seat, 10));
+      });
       // Re-fan the hand whenever the viewport changes (rotate / resize), so the
       // cards always spread to use the available width.
       let raf = 0;
@@ -235,7 +247,53 @@
         b.classList.toggle('is-bot', isBot);
         b.classList.toggle('is-me', isMe);
         b.classList.toggle('offline', !!p.offline);
+        // re-apply any live voice indicator (innerHTML above wiped the chip)
+        this._renderVoiceChip(b, idx);
       });
+    }
+
+    /* ---- voice chat per-member indicators -------------------------------- */
+    // Pushed from BQ.Voice: talking glow, connection-signal bars, mute state.
+    setVoiceMember(info) {
+      if (!info) return;
+      if (info.gone) delete this.voiceState[info.seat];
+      else this.voiceState[info.seat] = info;
+      const seatName = this.seatOf ? this.seatOf[info.seat] : null;
+      const badge = seatName ? $('.badge[data-seat="' + seatName + '"]') : null;
+      if (badge) this._renderVoiceChip(badge, info.seat);
+    }
+
+    // Wipe every voice indicator (call ended / left the room).
+    clearVoice() {
+      this.voiceState = {};
+      $$('.voice-chip').forEach((c) => c.remove());
+      $$('.badge.voice-talking').forEach((b) => b.classList.remove('voice-talking'));
+    }
+
+    _renderVoiceChip(badge, idx) {
+      const info = this.voiceState[idx];
+      let chip = badge.querySelector('.voice-chip');
+      if (!info) { if (chip) chip.remove(); badge.classList.remove('voice-talking'); return; }
+      if (!chip) { chip = document.createElement('span'); chip.className = 'voice-chip'; badge.appendChild(chip); }
+      chip.dataset.seat = String(info.seat);
+      chip.dataset.self = info.self ? '1' : '0';
+      badge.classList.toggle('voice-talking', !!info.talking);
+
+      let html;
+      if (info.self) {
+        chip.title = info.muted ? 'Your mic is muted — tap to unmute' : 'Your mic is live — tap to mute';
+        html = '<span class="vmic' + (info.muted ? ' off' : '') + '">' + (info.muted ? '🔇' : '🎙️') + '</span>';
+      } else if (info.signal === 'lost') {
+        chip.title = 'Connection lost';
+        html = '<span class="vsig lost" title="Connection lost">⚠</span>';
+      } else {
+        const bars = (typeof info.signal === 'number') ? info.signal : 0;
+        chip.title = (info.peerMuted ? 'Muted by you · ' : '') +
+          (bars === 0 ? 'Connecting…' : 'Signal ' + bars + '/3') + ' — tap to ' + (info.peerMuted ? 'unmute' : 'mute');
+        html = '<span class="vsig b' + bars + '"><i></i><i></i><i></i></span>';
+        if (info.peerMuted) html += '<span class="vmute">🔇</span>';
+      }
+      chip.innerHTML = html;
     }
 
     /* ---- round start: deal animation ------------------------------------- */
