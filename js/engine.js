@@ -505,6 +505,11 @@
         totals: this.players.map((p) => p.totalScore),
         breakdown,
         cutShort: !!cutShort,
+        // Whether this round ends the game. Scores are already applied above, so
+        // _isGameOver() is accurate here. Carried in the payload because the
+        // engine emits 'roundEnd' BEFORE phase flips to 'gameOver' — listeners
+        // can't read the phase yet, so they must read this flag.
+        gameOver: this._isGameOver(),
       };
       this._setPhase('roundEnd');
       this.emit('roundEnd', this._lastRoundEnd);

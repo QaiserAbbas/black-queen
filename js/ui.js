@@ -730,7 +730,9 @@
       $('#roundSummaryTable').innerHTML =
         '<thead><tr><th style="text-align:left">Player</th><th>Pts</th><th>From</th><th>Round</th><th>Total</th><th style="text-align:left">Notes</th></tr></thead>' +
         '<tbody>' + tbody + '</tbody>';
-      const over = this.engine.phase === 'gameOver';
+      // The engine fires 'roundEnd' just before phase flips to 'gameOver', so
+      // trust the payload flag; fall back to phase for resume/reconnect replays.
+      const over = !!e.gameOver || this.engine.phase === 'gameOver';
       $('#roundTitle').textContent = over
         ? 'Round ' + e.round + ' Complete — Game Over'
         : 'Round ' + e.round + ' Complete';
