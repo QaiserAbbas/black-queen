@@ -826,7 +826,7 @@ function wireEngine(room) {
     tookQueen: ev.tookQueen, queenDisregarded: ev.queenDisregarded,
   }));
   e.on('roundEnd', (ev) => {
-    room.lastRoundEnd = { round: ev.round, roundScores: ev.roundScores, totals: ev.totals, breakdown: ev.breakdown, dealtHands: ev.dealtHands, cutShort: !!ev.cutShort, gameOver: !!ev.gameOver };
+    room.lastRoundEnd = { round: ev.round, roundScores: ev.roundScores, totals: ev.totals, breakdown: ev.breakdown, tricks: ev.tricks, cutShort: !!ev.cutShort, gameOver: !!ev.gameOver };
     broadcast(room, Object.assign({ name: 'roundEnd' }, room.lastRoundEnd));
     // Begin collecting "ready" confirmations for the next round (unless the
     // game just ended — gameOver fires right after this).

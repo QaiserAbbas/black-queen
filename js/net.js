@@ -212,7 +212,7 @@
           this.emit('roundEnd', {
             round: hint.round, roundScores: hint.roundScores,
             totals: hint.totals, breakdown: hint.breakdown,
-            dealtHands: hint.dealtHands,
+            tricks: hint.tricks,
             gameOver: !!hint.gameOver,
           });
           break;

@@ -177,6 +177,13 @@
       <div class="modal">
         <h2 id="roundTitle">Round Complete</h2>
         <table class="score" id="roundSummaryTable"></table>
+        <div class="reveal-bar" id="revealBar">
+          <span class="reveal-bar-label">Cards won this round</span>
+          <div class="reveal-zoom">
+            <button class="zoom-btn" id="btnRevealSmaller" title="Smaller cards" aria-label="Smaller cards">−</button>
+            <button class="zoom-btn" id="btnRevealBigger" title="Bigger cards" aria-label="Bigger cards">+</button>
+          </div>
+        </div>
         <div class="hands-reveal" id="handsReveal"></div>
         <div class="close-row">
           <span id="roundWait" style="display:none;color:#bfe0c9;align-self:center">Waiting for host to start the next round…</span>

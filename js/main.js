@@ -1209,6 +1209,25 @@
       }
     });
 
+    // Reveal zoom: make the end-of-round won-tricks cards bigger / smaller.
+    // Persisted per player; the CSS var updates every reveal card live.
+    const REVEAL_MIN = 0.7, REVEAL_MAX = 2.2, REVEAL_STEP = 0.15;
+    function updateRevealZoom() {
+      const s = BQ.Prefs.get().revealScale || 1;
+      const sm = $('#btnRevealSmaller'), bg = $('#btnRevealBigger');
+      if (sm) sm.disabled = s <= REVEAL_MIN + 0.001;
+      if (bg) bg.disabled = s >= REVEAL_MAX - 0.001;
+    }
+    function bumpReveal(dir) {
+      const cur = BQ.Prefs.get().revealScale || 1;
+      const next = Math.min(REVEAL_MAX, Math.max(REVEAL_MIN, Math.round((cur + dir * REVEAL_STEP) * 100) / 100));
+      BQ.Prefs.set({ revealScale: next });
+      updateRevealZoom();
+    }
+    $('#btnRevealSmaller').addEventListener('click', () => { BQ.Sound.click(); bumpReveal(-1); });
+    $('#btnRevealBigger').addEventListener('click', () => { BQ.Sound.click(); bumpReveal(1); });
+    updateRevealZoom();
+
     // Settings overlay
     $('#btnSaveRules').addEventListener('click', () => {
       readSettingsForm();

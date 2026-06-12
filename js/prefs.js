@@ -47,6 +47,7 @@
     cardScale: 1,        // 0.7 – 2.0 multiplier on your own hand
     handScroll: true,    // big hands scroll horizontally instead of over-squeezing
     trickScale: 1,       // 0.7 – 1.6 multiplier on the played cards in the center
+    revealScale: 1,      // 0.7 – 2.2 multiplier on the end-of-round won-tricks cards
     table: 'classic',
     cardBack: 'crimson',
     cardFace: 'classic',
@@ -87,6 +88,7 @@
     body.dataset.face = prefs.cardFace;
     document.documentElement.style.setProperty('--card-scale', prefs.cardScale);
     document.documentElement.style.setProperty('--trick-scale', prefs.trickScale);
+    document.documentElement.style.setProperty('--reveal-scale', prefs.revealScale);
     body.classList.toggle('hand-scroll', !!prefs.handScroll);
   }
 

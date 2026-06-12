@@ -732,8 +732,8 @@
         '<tbody>' + tbody + '</tbody>';
       // The engine fires 'roundEnd' just before phase flips to 'gameOver', so
       // trust the payload flag; fall back to phase for resume/reconnect replays.
-      // Reveal every player's full dealt hand, one seat at a time.
-      this.renderHandsReveal(e.dealtHands);
+      // Reveal the tricks each player WON this round, grouped per player.
+      this.renderWonTricks(e.tricks);
 
       const over = !!e.gameOver || this.engine.phase === 'gameOver';
       $('#roundTitle').textContent = over
@@ -758,61 +758,81 @@
       this.openOverlay('roundOverlay');
     }
 
-    /* ---- end-of-round hand reveal ---------------------------------------- *
-     * Flip every player's full dealt hand face-up, revealed one seat at a time
-     * (and within a seat, one card at a time). dealtHands[i] = [{rank,suit}…]. */
-    renderHandsReveal(dealtHands) {
+    /* ---- end-of-round won-tricks reveal ---------------------------------- *
+     * For each player, show the tricks they WON — each trick a group of 4 cards
+     * (one per player), revealed one card at a time. tricks[] =
+     * [{winnerIndex, points, tookQueen, hearts, cards:[{playerIndex,rank,suit}]}]. */
+    renderWonTricks(tricks) {
       const box = document.getElementById('handsReveal');
       if (!box) return;
       box.innerHTML = '';
-      if (!Array.isArray(dealtHands) || !dealtHands.length) { box.style.display = 'none'; return; }
+      if (!Array.isArray(tricks)) { box.style.display = 'none'; return; }
       box.style.display = '';
 
-      const suitOrder = { spades: 0, hearts: 1, clubs: 2, diamonds: 3 };
       const me = this.me;
-      const CARD_MS = 60;   // gap between consecutive cards
-      const SEAT_MS = 320;  // extra pause before the next player's hand
+      const players = this.engine.players || [];
+      const q = this.engine.rules.queenCard;
+      const CARD_MS = 55;    // between cards in a trick
+      const TRICK_MS = 200;  // between tricks
+      const SEAT_MS = 300;   // before the next player's section
       let delay = 0;
 
-      dealtHands.forEach((cards, i) => {
-        const player = this.engine.players[i];
-        const name = (player && player.name) || ('Seat ' + (i + 1));
+      for (let i = 0; i < players.length; i++) {
+        const mine = tricks.filter((t) => t.winnerIndex === i);
+        const name = (players[i] && players[i].name) || ('Seat ' + (i + 1));
+        const pts = mine.reduce((s, t) => s + (t.points || 0), 0);
 
-        const row = document.createElement('div');
-        row.className = 'reveal-row' + (i === me ? ' you' : '');
+        const section = document.createElement('div');
+        section.className = 'won-player' + (i === me ? ' you' : '');
 
-        const label = document.createElement('div');
-        label.className = 'reveal-name';
-        label.textContent = name + (i === me ? ' (you)' : '');
-        label.style.animationDelay = delay + 'ms';
-        row.appendChild(label);
+        const head = document.createElement('div');
+        head.className = 'won-head';
+        head.style.animationDelay = delay + 'ms';
+        const tag = mine.length === 1 ? 'trick' : 'tricks';
+        head.innerHTML =
+          '<span class="won-name">' + name + (i === me ? ' (you)' : '') + '</span>' +
+          '<span class="won-sum">' + mine.length + ' ' + tag +
+          (pts > 0 ? ' · <b class="pen">+' + pts + '</b>' : ' · 0') + '</span>';
+        section.appendChild(head);
 
-        const wrap = document.createElement('div');
-        wrap.className = 'reveal-cards';
+        const list = document.createElement('div');
+        list.className = 'won-tricks';
 
-        const sorted = (cards || [])
-          .map((c) => new BQ.Card(c.rank, c.suit))
-          .sort((a, b) => (suitOrder[a.suit] - suitOrder[b.suit]) || (a.value - b.value));
-
-        if (!sorted.length) {
+        if (!mine.length) {
           const empty = document.createElement('span');
           empty.className = 'reveal-empty';
-          empty.textContent = '— played out —';
+          empty.textContent = '— no tricks —';
           empty.style.animationDelay = delay + 'ms';
-          wrap.appendChild(empty);
+          list.appendChild(empty);
+          delay += SEAT_MS;
         } else {
-          sorted.forEach((card) => {
-            const el = this.cardEl(card, true);
-            el.classList.add('reveal-card');
-            el.style.animationDelay = delay + 'ms';
-            wrap.appendChild(el);
-            delay += CARD_MS;
+          mine.forEach((t) => {
+            const group = document.createElement('div');
+            group.className = 'won-trick';
+            (t.cards || []).forEach((c) => {
+              const card = new BQ.Card(c.rank, c.suit);
+              const el = this.cardEl(card, true);
+              el.classList.add('reveal-card');
+              if (c.playerIndex === t.winnerIndex) el.classList.add('took'); // the winning card
+              el.style.animationDelay = delay + 'ms';
+              group.appendChild(el);
+              delay += CARD_MS;
+            });
+            if (t.points > 0) {
+              const badge = document.createElement('span');
+              badge.className = 'won-trick-pts';
+              badge.textContent = '+' + t.points;
+              badge.style.animationDelay = delay + 'ms';
+              group.appendChild(badge);
+            }
+            list.appendChild(group);
+            delay += TRICK_MS;
           });
+          delay += SEAT_MS - TRICK_MS;
         }
-        row.appendChild(wrap);
-        box.appendChild(row);
-        delay += SEAT_MS;
-      });
+        section.appendChild(list);
+        box.appendChild(section);
+      }
     }
 
     /* ---- game over -------------------------------------------------------- */

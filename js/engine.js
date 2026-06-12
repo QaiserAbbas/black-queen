@@ -499,29 +499,28 @@
         p._hearts = 0;
       });
 
-      // Each player's FULL dealt hand this round, for the end-of-round reveal:
-      // the cards still held + every card they played, rebuilt from the trick
-      // log. Derived (not stored at deal) so it survives a mid-round refresh and
-      // is identical on the server for networked play. Revealing it is safe:
-      // round-end only fires after a fully-played round or a game-ending round.
-      const dealtHands = this.players.map((p, i) => {
-        const cards = p.hand.map((c) => ({ rank: c.rank, suit: c.suit }));
-        for (const h of (this.trickLog || [])) {
-          for (const c of (h.cards || [])) {
-            if (c.playerIndex !== i) continue;
-            const u = c.id.indexOf('_');
-            cards.push({ rank: c.id.slice(0, u), suit: c.id.slice(u + 1) });
-          }
-        }
-        return cards;
-      });
+      // Every trick taken this round, for the end-of-round reveal: each entry is
+      // a group of 4 cards (one per player) tagged with who WON it, so the UI can
+      // group the tricks under each player. Built from the trick log (so it's
+      // identical on the server for networked play). Safe to reveal: round-end
+      // only fires after a fully-played round or a game-ending round.
+      const tricks = (this.trickLog || []).map((h) => ({
+        winnerIndex: h.winnerIndex,
+        points: h.points,
+        tookQueen: !!h.tookQueen,
+        hearts: h.hearts || 0,
+        cards: (h.cards || []).map((c) => {
+          const u = c.id.indexOf('_');
+          return { playerIndex: c.playerIndex, rank: c.id.slice(0, u), suit: c.id.slice(u + 1) };
+        }),
+      }));
 
       this._lastRoundEnd = {
         round: this.round,
         roundScores,
         totals: this.players.map((p) => p.totalScore),
         breakdown,
-        dealtHands,
+        tricks,
         cutShort: !!cutShort,
         // Whether this round ends the game. Scores are already applied above, so
         // _isGameOver() is accurate here. Carried in the payload because the

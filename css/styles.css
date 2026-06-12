@@ -117,42 +117,79 @@ html, body {
 }
 .lobby-seat.you { border-color: var(--gold); box-shadow: 0 0 14px rgba(233,196,106,0.35); }
 
-/* ---------- End-of-round hand reveal ------------------------------------- */
+/* ---------- End-of-round won-tricks reveal ------------------------------- */
 .hands-reveal {
-  display: flex; flex-direction: column; gap: 0.6rem;
-  margin: 0.4rem 0 0.2rem; padding: 0.2rem;
-  max-height: 40vh; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 0.55rem;
+  margin: 0.5rem 0 0.2rem; padding: 0.1rem;
+  max-height: 44vh; overflow-y: auto;
+  text-align: left;
 }
-.reveal-row {
-  display: flex; align-items: center; gap: 0.7rem;
-  padding: 0.45rem 0.6rem; border-radius: 12px;
+.won-player {
+  padding: 0.5rem 0.65rem; border-radius: 12px;
   background: rgba(0,0,0,0.26); border: 1.5px solid rgba(255,255,255,0.10);
 }
-.reveal-row.you { border-color: var(--gold); background: rgba(233,196,106,0.10); }
-.reveal-name {
-  flex: 0 0 96px; min-width: 96px; text-align: right;
-  font-weight: 700; font-size: 0.86rem; color: #e7edf0;
+.won-player.you { border-color: var(--gold); background: rgba(233,196,106,0.10); }
+.won-head {
+  display: flex; align-items: baseline; gap: 0.5rem; margin-bottom: 0.45rem;
   opacity: 0; animation: reveal-name 0.34s ease forwards;
 }
-.reveal-row.you .reveal-name { color: var(--gold-bright); }
-.reveal-cards { display: flex; flex-wrap: wrap; gap: 3px; align-items: center; }
+.won-name { font-weight: 800; font-size: 0.92rem; color: #e7edf0; }
+.won-player.you .won-name { color: var(--gold-bright); }
+.won-sum { font-size: 0.78rem; color: #9fc3ad; letter-spacing: 0.02em; }
+.won-sum .pen { color: #ff8a73; }
+/* the tricks this player won, each a tight group of 4 cards */
+.won-tricks { display: flex; flex-wrap: wrap; gap: 0.55rem; align-items: flex-start; }
+.won-trick {
+  display: inline-flex; align-items: center; gap: 2px; position: relative;
+  padding: 4px 5px; border-radius: 8px;
+  background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08);
+}
+.won-trick-pts {
+  margin-left: 3px; font-size: 0.74rem; font-weight: 800; color: #ff8a73;
+  opacity: 0; animation: reveal-name 0.34s ease forwards;
+}
 .reveal-empty {
   color: #9fb6a6; font-style: italic; font-size: 0.82rem;
   opacity: 0; animation: reveal-name 0.34s ease forwards;
 }
-.hands-reveal .card {
-  width: 44px; height: 62px; border-radius: 4px;
-  box-shadow: 0 3px 8px rgba(0,0,0,0.45);
+/* zoom bar above the reveal — make the won-tricks cards bigger / smaller */
+.reveal-bar {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.6rem;
+  margin: 0.5rem 0 0.1rem;
 }
-.hands-reveal .card.is-queen { box-shadow: 0 3px 10px rgba(0,0,0,0.55), 0 0 0 2px var(--gold), 0 0 10px rgba(233,196,106,0.6); }
-.reveal-card { opacity: 0; animation: reveal-pop 0.4s cubic-bezier(.22,.9,.32,1) forwards; }
+.reveal-bar-label {
+  font-size: 0.74rem; letter-spacing: 0.08em; text-transform: uppercase; color: #9fc3ad;
+}
+.reveal-zoom { display: flex; gap: 0.35rem; }
+.zoom-btn {
+  width: 30px; height: 30px; border-radius: 8px; line-height: 1;
+  border: 1.5px solid rgba(255,255,255,0.22); background: rgba(0,0,0,0.3);
+  color: var(--gold-bright); font-size: 1.15rem; font-weight: 800;
+  cursor: pointer; display: grid; place-items: center;
+  transition: background 0.15s, transform 0.1s, border-color 0.15s;
+}
+.zoom-btn:hover { background: rgba(233,196,106,0.18); border-color: var(--gold); }
+.zoom-btn:active { transform: scale(0.9); }
+.zoom-btn:disabled { opacity: 0.4; cursor: default; }
+.hands-reveal .card {
+  width: calc(38px * var(--reveal-scale, 1)); height: calc(53px * var(--reveal-scale, 1));
+  border-radius: 4px; box-shadow: 0 2px 6px rgba(0,0,0,0.45);
+}
+.hands-reveal .card.is-queen { box-shadow: 0 2px 8px rgba(0,0,0,0.55), 0 0 0 2px var(--gold), 0 0 9px rgba(233,196,106,0.6); }
+/* the card that actually WON the trick gets a gold ring + crown */
+.hands-reveal .card.took { box-shadow: 0 0 0 2px var(--gold-bright), 0 3px 9px rgba(0,0,0,0.5); }
+.hands-reveal .card.took::after {
+  content: '👑'; position: absolute; top: -9px; right: -6px; font-size: 0.7rem;
+  filter: drop-shadow(0 1px 1px rgba(0,0,0,0.6));
+}
+.reveal-card { position: relative; opacity: 0; animation: reveal-pop 0.4s cubic-bezier(.22,.9,.32,1) forwards; }
 @keyframes reveal-pop {
   from { opacity: 0; transform: translateY(10px) rotateY(80deg) scale(0.9); }
   to   { opacity: 1; transform: none; }
 }
 @keyframes reveal-name { from { opacity: 0; transform: translateX(-6px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) {
-  .reveal-card, .reveal-name, .reveal-empty { animation: none !important; opacity: 1 !important; transform: none !important; }
+  .reveal-card, .won-head, .won-trick-pts, .reveal-empty { animation: none !important; opacity: 1 !important; transform: none !important; }
 }
 .lobby-kick {
   margin-left: auto; flex: 0 0 auto;
