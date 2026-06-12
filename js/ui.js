@@ -732,6 +732,9 @@
         '<tbody>' + tbody + '</tbody>';
       // The engine fires 'roundEnd' just before phase flips to 'gameOver', so
       // trust the payload flag; fall back to phase for resume/reconnect replays.
+      // Reveal every player's full dealt hand, one seat at a time.
+      this.renderHandsReveal(e.dealtHands);
+
       const over = !!e.gameOver || this.engine.phase === 'gameOver';
       $('#roundTitle').textContent = over
         ? 'Round ' + e.round + ' Complete — Game Over'
@@ -753,6 +756,63 @@
         }
       }
       this.openOverlay('roundOverlay');
+    }
+
+    /* ---- end-of-round hand reveal ---------------------------------------- *
+     * Flip every player's full dealt hand face-up, revealed one seat at a time
+     * (and within a seat, one card at a time). dealtHands[i] = [{rank,suit}…]. */
+    renderHandsReveal(dealtHands) {
+      const box = document.getElementById('handsReveal');
+      if (!box) return;
+      box.innerHTML = '';
+      if (!Array.isArray(dealtHands) || !dealtHands.length) { box.style.display = 'none'; return; }
+      box.style.display = '';
+
+      const suitOrder = { spades: 0, hearts: 1, clubs: 2, diamonds: 3 };
+      const me = this.me;
+      const CARD_MS = 60;   // gap between consecutive cards
+      const SEAT_MS = 320;  // extra pause before the next player's hand
+      let delay = 0;
+
+      dealtHands.forEach((cards, i) => {
+        const player = this.engine.players[i];
+        const name = (player && player.name) || ('Seat ' + (i + 1));
+
+        const row = document.createElement('div');
+        row.className = 'reveal-row' + (i === me ? ' you' : '');
+
+        const label = document.createElement('div');
+        label.className = 'reveal-name';
+        label.textContent = name + (i === me ? ' (you)' : '');
+        label.style.animationDelay = delay + 'ms';
+        row.appendChild(label);
+
+        const wrap = document.createElement('div');
+        wrap.className = 'reveal-cards';
+
+        const sorted = (cards || [])
+          .map((c) => new BQ.Card(c.rank, c.suit))
+          .sort((a, b) => (suitOrder[a.suit] - suitOrder[b.suit]) || (a.value - b.value));
+
+        if (!sorted.length) {
+          const empty = document.createElement('span');
+          empty.className = 'reveal-empty';
+          empty.textContent = '— played out —';
+          empty.style.animationDelay = delay + 'ms';
+          wrap.appendChild(empty);
+        } else {
+          sorted.forEach((card) => {
+            const el = this.cardEl(card, true);
+            el.classList.add('reveal-card');
+            el.style.animationDelay = delay + 'ms';
+            wrap.appendChild(el);
+            delay += CARD_MS;
+          });
+        }
+        row.appendChild(wrap);
+        box.appendChild(row);
+        delay += SEAT_MS;
+      });
     }
 
     /* ---- game over -------------------------------------------------------- */

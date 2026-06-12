@@ -714,6 +714,38 @@ function handleMessage(client, msg) {
       }
       break;
     }
+    // Host removes a player from the LOBBY (pre-start). The seat is freed
+    // immediately and its token cleared so the kicked player can't resume back
+    // into it; the kicked client is told to return to the menu. Mid-game
+    // departures go through the leave / vacancy (bot-fill) flow instead.
+    case 'kick': {
+      const room = rooms.get(client.roomCode);
+      if (!room || room.hostId !== client.id || room.started) break;
+      const target = msg.seat | 0;
+      if (target === client.seat) break;          // the host can't kick themselves
+      const seat = room.seats[target];
+      if (!seat) break;
+
+      if (seat.graceTimer) { clearTimeout(seat.graceTimer); seat.graceTimer = null; }
+      if (room.hostToken && room.hostToken === seat.token) room.hostToken = null; // safety
+      seat.token = null;                           // a resume with this token now fails
+
+      // Detach the kicked client (if connected) so its eventual socket close
+      // won't touch this room, and tell it to clean up + return to the menu.
+      if (seat.clientId) {
+        const c = clients.get(seat.clientId);
+        if (c) {
+          c.roomCode = null; c.seat = -1;
+          c.send({ t: 'kicked', code: room.code });
+        }
+      }
+
+      room.seats.splice(target, 1);
+      // Re-index remaining seats so each connected client knows its new seat.
+      room.seats.forEach((s, i) => { if (s.clientId) { const cc = clients.get(s.clientId); if (cc) cc.seat = i; } });
+      broadcastLobby(room);
+      break;
+    }
     case 'leave': dropClient(client, true); break;
   }
 }
@@ -794,7 +826,7 @@ function wireEngine(room) {
     tookQueen: ev.tookQueen, queenDisregarded: ev.queenDisregarded,
   }));
   e.on('roundEnd', (ev) => {
-    room.lastRoundEnd = { round: ev.round, roundScores: ev.roundScores, totals: ev.totals, breakdown: ev.breakdown, cutShort: !!ev.cutShort, gameOver: !!ev.gameOver };
+    room.lastRoundEnd = { round: ev.round, roundScores: ev.roundScores, totals: ev.totals, breakdown: ev.breakdown, dealtHands: ev.dealtHands, cutShort: !!ev.cutShort, gameOver: !!ev.gameOver };
     broadcast(room, Object.assign({ name: 'roundEnd' }, room.lastRoundEnd));
     // Begin collecting "ready" confirmations for the next round (unless the
     // game just ended — gameOver fires right after this).

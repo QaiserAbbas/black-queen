@@ -390,6 +390,20 @@
       renderLobby(m.state);
       ui.show('lobby');
     });
+    // The host removed us from the room. Drop the session so we DON'T try to
+    // resume back into the seat, then return to a clean menu.
+    net.on('kicked', () => {
+      clearSession();
+      if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+      reconnectAttempts = 0;
+      ui.setReconnecting(false);
+      if (BQ.Voice) BQ.Voice.leave();
+      netEngine = null; isMultiplayer = false;
+      document.body.classList.remove('mp');
+      BQ.Sound.stopMusic();
+      ui.toast('You were removed from the room by the host.');
+      ui.show('menu');
+    });
     net.on('close', () => {
       ui.setNetStatus('offline');
       // Lost the socket. Any saved session (lobby OR mid-game) reconnects and
@@ -492,12 +506,17 @@
   function renderLobby(state) {
     lastLobbyState = state;
     $('#lobbyCode').textContent = state.code;
-    const seats = state.players.map((p) =>
-      '<div class="lobby-seat' + (p.you ? ' you' : '') + '">' +
-      '<span class="avatar">' + p.name.charAt(0).toUpperCase() + '</span>' +
-      '<span class="lname">' + p.name + (p.seat === 0 ? ' 👑' : '') + (p.you ? ' (you)' : '') +
-      (p.connected === false ? ' <span class="off-tag">⚠️ reconnecting…</span>' : '') + '</span></div>'
-    ).join('');
+    const seats = state.players.map((p) => {
+      // Host gets a remove (✕) button on every seat but their own.
+      const kick = (state.youAreHost && !p.you)
+        ? '<button class="lobby-kick" data-kick="' + p.seat + '" title="Remove player" aria-label="Remove player">✕</button>'
+        : '';
+      return '<div class="lobby-seat' + (p.you ? ' you' : '') + '">' +
+        '<span class="avatar">' + p.name.charAt(0).toUpperCase() + '</span>' +
+        '<span class="lname">' + p.name + (p.seat === 0 ? ' 👑' : '') + (p.you ? ' (you)' : '') +
+        (p.connected === false ? ' <span class="off-tag">⚠️ reconnecting…</span>' : '') + '</span>' +
+        kick + '</div>';
+    }).join('');
     const empties = Math.max(0, state.maxSeats - state.players.length);
     const botNote = empties > 0
       ? '<div class="lobby-seat bot">' + empties + ' empty seat' + (empties > 1 ? 's' : '') + ' → filled with bots</div>'
@@ -1043,6 +1062,15 @@
     $('#btnSeatOrderStart').addEventListener('click', () => { BQ.Sound.click(); confirmSeatOrder(); });
     $('#btnSeatOrderCancel').addEventListener('click', () => { BQ.Sound.click(); ui.closeOverlay('seatOrderOverlay'); });
     $('#btnLobbyLeave').addEventListener('click', () => { BQ.Sound.click(); leaveMultiplayer(); });
+    // Host: remove a player (event-delegated — the seat list is re-rendered).
+    $('#lobbyPlayers').addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-kick]');
+      if (!btn) return;
+      const seat = parseInt(btn.dataset.kick, 10);
+      if (!Number.isInteger(seat)) return;
+      BQ.Sound.click();
+      if (net) net.send({ t: 'kick', seat });
+    });
 
     // Host vacancy prompt (a player left mid-game)
     $('#btnAddBot').addEventListener('click', () => {

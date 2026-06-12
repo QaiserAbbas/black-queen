@@ -116,6 +116,54 @@ html, body {
   padding: 0.6rem 1rem; border-radius: 12px; font-weight: 600;
 }
 .lobby-seat.you { border-color: var(--gold); box-shadow: 0 0 14px rgba(233,196,106,0.35); }
+
+/* ---------- End-of-round hand reveal ------------------------------------- */
+.hands-reveal {
+  display: flex; flex-direction: column; gap: 0.6rem;
+  margin: 0.4rem 0 0.2rem; padding: 0.2rem;
+  max-height: 40vh; overflow-y: auto;
+}
+.reveal-row {
+  display: flex; align-items: center; gap: 0.7rem;
+  padding: 0.45rem 0.6rem; border-radius: 12px;
+  background: rgba(0,0,0,0.26); border: 1.5px solid rgba(255,255,255,0.10);
+}
+.reveal-row.you { border-color: var(--gold); background: rgba(233,196,106,0.10); }
+.reveal-name {
+  flex: 0 0 96px; min-width: 96px; text-align: right;
+  font-weight: 700; font-size: 0.86rem; color: #e7edf0;
+  opacity: 0; animation: reveal-name 0.34s ease forwards;
+}
+.reveal-row.you .reveal-name { color: var(--gold-bright); }
+.reveal-cards { display: flex; flex-wrap: wrap; gap: 3px; align-items: center; }
+.reveal-empty {
+  color: #9fb6a6; font-style: italic; font-size: 0.82rem;
+  opacity: 0; animation: reveal-name 0.34s ease forwards;
+}
+.hands-reveal .card {
+  width: 44px; height: 62px; border-radius: 4px;
+  box-shadow: 0 3px 8px rgba(0,0,0,0.45);
+}
+.hands-reveal .card.is-queen { box-shadow: 0 3px 10px rgba(0,0,0,0.55), 0 0 0 2px var(--gold), 0 0 10px rgba(233,196,106,0.6); }
+.reveal-card { opacity: 0; animation: reveal-pop 0.4s cubic-bezier(.22,.9,.32,1) forwards; }
+@keyframes reveal-pop {
+  from { opacity: 0; transform: translateY(10px) rotateY(80deg) scale(0.9); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes reveal-name { from { opacity: 0; transform: translateX(-6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .reveal-card, .reveal-name, .reveal-empty { animation: none !important; opacity: 1 !important; transform: none !important; }
+}
+.lobby-kick {
+  margin-left: auto; flex: 0 0 auto;
+  width: 30px; height: 30px; border-radius: 50%;
+  border: 1.5px solid rgba(231,111,81,0.55); background: rgba(231,111,81,0.14);
+  color: #ff8a73; font-size: 0.95rem; font-weight: 800; line-height: 1;
+  cursor: pointer; display: grid; place-items: center;
+  transition: background 0.15s, transform 0.1s;
+}
+.lobby-kick:hover { background: rgba(231,111,81,0.32); color: #fff; }
+.lobby-kick:active { transform: scale(0.9); }
 .lobby-seat.bot { justify-content: center; color: #bfe0c9; font-style: italic; border-style: dashed; }
 .lobby-seat .avatar {
   width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center;
