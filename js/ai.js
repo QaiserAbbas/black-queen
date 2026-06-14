@@ -11,7 +11,10 @@
  *   1. never get stuck with the Black Queen (12 pts) — and dump it on others,
  *   2. shed the queen-magnets (A♠/K♠) before they capture the Queen,
  *   3. lose dangerous tricks (duck under), win only the safe/empty ones,
- *   4. lead low & safe, voiding side suits so it can sluff penalties later.
+ *   4. lead low & safe, voiding side suits so it can sluff penalties later,
+ *   5. when safe from the Queen with only LOW spades, flush spades out first,
+ *   6. when stuck holding A♠/K♠, run low clubs/diamonds to go void, then
+ *      sluff the magnets onto an opponent's trick later.
  * Every rule value is read from the live rules config (nothing hard-coded).
  * ===========================================================================*/
 
@@ -148,6 +151,21 @@
     const lenBySuit = { spades: 0, hearts: 0, diamonds: 0, clubs: 0 };
     for (const c of engine.players[me].hand) lenBySuit[c.suit]++;
 
+    // My spade picture (the Queen lives in qSuit; "big" = ranked above her).
+    const mySpades = engine.players[me].hand.filter((c) => c.suit === qSuit);
+    const haveBigSpade = mySpades.some((c) => c.value > qVal);
+    const onlySmallSpades = mySpades.length > 0 && !haveBigSpade;
+    const safeFromQueen = queenPlayed || iAmExempt;
+
+    // Rule 5: safe from the Queen and holding only LOW spades → lead spades now
+    //         to finish the suit (depletes it for later sluffing, and can draw
+    //         the Queen off an opponent at no risk to me — my spades can't win).
+    const flushSpades = safeFromQueen && onlySmallSpades;
+
+    // Rule 6: stuck with A♠/K♠ I can't safely lead → run my low clubs/diamonds
+    //         first to go void in a side suit, so I can sluff the magnets later.
+    const stuckBigSpade = haveBigSpade && !queenPlayed && !iAmExempt;
+
     let best = null;
     let bestScore = Infinity;
     for (const c of cands) {
@@ -162,6 +180,11 @@
       if (c.suit === 'hearts') score += willWin ? 15 : 4; // point suit; low hearts are fine
 
       score += lenBySuit[c.suit] * 1.5;          // bias toward voiding a short suit
+
+      if (flushSpades && c.suit === qSuit) score -= 50;   // finish low spades first
+      if (stuckBigSpade && (c.suit === 'clubs' || c.suit === 'diamonds')) {
+        score -= 30;                              // run side suits low → go void
+      }
 
       if (score < bestScore) { bestScore = score; best = c; }
     }
