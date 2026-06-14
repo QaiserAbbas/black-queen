@@ -156,6 +156,7 @@
           offline: !!p.offline,
           totalScore: p.totalScore, tricksWon: p.tricksWon,
           roundHistory: p.roundHistory || [], queenTakes: p.queenTakes,
+          consecutiveZeros: p.consecutiveZeros || 0,
           _penalty: p.penalty,
         };
         // Reconstruct real Card objects for my own hand; placeholders for others.

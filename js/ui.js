@@ -14,6 +14,11 @@
   // Seat order, clockwise starting from the human.
   const SEAT_ORDER = ['south', 'west', 'north', 'east'];
 
+  // RULE 4 warning: once this many hands (tricks) have been played in a round
+  // and a player still hasn't won one, flag them — they're on track for the
+  // "no tricks taken" penalty, so other players can see the danger coming.
+  const NO_TRICK_WARN_AFTER = 6;
+
   // Map a card to its vector image filename in /cards (Byron Knoll deck).
   const RANK_FILE = { A: 'ace', J: 'jack', Q: 'queen', K: 'king' };
   function cardFile(card) {
@@ -255,10 +260,34 @@
         const peer = this.peers && this.peers[idx];
         const shield = (peer && peer.attacksMuted && !isBot)
           ? ' <span class="shield-tag" title="Attack taunts muted">🛡️</span>' : '';
+        // RULE 5 warning: this player is on a zero-point streak that's one round
+        // short of the limit, so another 0-point round costs them the penalty.
+        // Show a pulsing "⚠ 0 0" tag (one 0 per streak round) so every player
+        // knows that if this player ends the round on 0 again, it's -12.
+        const zStreak = p.consecutiveZeros || 0;
+        const zLimit = e.rules.consecutiveZeroLimit || 0;
+        const atZeroRisk = !!e.rules.consecutiveZeroRuleEnabled && zLimit > 1 && zStreak >= zLimit - 1;
+        // RULE 4 warning: this player has won no hand (trick) yet, and enough
+        // hands have already been played this round that they're at risk of the
+        // "no tricks taken" penalty. Show a pulsing "No Hands" tag.
+        const tricksPlayed = (e.trickLog && e.trickLog.length) || 0;
+        const atNoTrickRisk = !!e.rules.noTrickRuleEnabled &&
+          tricksPlayed >= NO_TRICK_WARN_AFTER && (p.tricksWon || 0) === 0;
+        const zeroTag = atZeroRisk
+          ? ' <span class="zero-streak-tag" title="' + zStreak +
+            ' zero-point rounds in a row — another 0 this round means ' +
+            e.rules.consecutiveZeroPenalty + ' points!">⚠ ' +
+            new Array(zStreak).fill('0').join(' ') + '</span>'
+          : '';
+        const noTrickTag = atNoTrickRisk
+          ? ' <span class="no-trick-tag" title="No hands won in ' + tricksPlayed +
+            ' hands — risks ' + e.rules.noTrickPenalty +
+            ' points for taking no tricks this round!">⚠ No Hands</span>'
+          : '';
         b.innerHTML =
           '<div class="avatar">' + p.name.charAt(0).toUpperCase() + '</div>' +
           '<div class="meta"><span class="pname">' + p.name + ' ' + tag + shield +
-          (stuck ? ' <span class="queen-tag">♛</span>' : '') + '</span>' +
+          (stuck ? ' <span class="queen-tag">♛</span>' : '') + zeroTag + noTrickTag + '</span>' +
           '<span class="pscore">' +
             '<span class="st" title="Total score"><b>' + p.totalScore + '</b> pts</span>' +
             '<span class="st" title="Hands won this round"><b>' + p.tricksWon + '</b> won</span>' +
@@ -266,6 +295,8 @@
           '</span></div>';
         b.classList.toggle('dealer', idx === e.dealerIndex);
         b.classList.toggle('stuck', stuck);
+        b.classList.toggle('zero-risk', atZeroRisk);
+        b.classList.toggle('no-trick-risk', atNoTrickRisk);
         b.classList.toggle('is-bot', isBot);
         b.classList.toggle('is-me', isMe);
         b.classList.toggle('offline', !!p.offline);
