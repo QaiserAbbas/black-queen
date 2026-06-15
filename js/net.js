@@ -142,6 +142,7 @@
     // Rebuild local mirror state from a server snapshot (no events emitted).
     ingest(s) {
       this.me = s.you;
+      this.spectator = !!s.spectator;   // watching only: me = -1, no hand, no moves
       this.phase = s.phase;
       this.round = s.round;
       this.dealerIndex = s.dealerIndex;

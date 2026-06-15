@@ -56,6 +56,7 @@
   let netEngine = null;      // BQ.NetworkEngine
   let isMultiplayer = false;
   let isHost = false;
+  let isSpectator = false;   // watching a livestream — no seat, no cards, no moves
   let myName = 'You';
   let lastLobbyState = null;  // most recent lobby snapshot (for the seat-arrange prompt)
   // Reconnection: a persisted session token lets a refreshed / dropped player
@@ -305,6 +306,7 @@
   function setControlsEnabled(on) {
     $('#btnCreate').disabled = !on;
     $('#btnJoin').disabled = !on;
+    const w = $('#btnWatch'); if (w) w.disabled = !on;
   }
 
   // Open the multiplayer screen and immediately probe the server.
@@ -374,6 +376,13 @@
       ui.setNetStatus('online', net.latencyMs);
       // tell the table about preferences they can see (🛡️ = taunts muted)
       net.send({ t: 'prefs', attacksMuted: BQ.Prefs.get().attacks === false });
+    });
+    // We're now a spectator. The table itself arrives via the first 'game'
+    // message (which shows the game screen); here we just flag the mode.
+    net.on('spectating', (m) => {
+      isSpectator = true;
+      $('#mpError').textContent = '';
+      setMpStatus('👁 Watching room ' + m.code + ' — no cards are shown.', 'ok');
     });
     net.on('error', (m) => { setMpStatus(m.msg || 'Error', 'bad'); $('#mpError').textContent = ''; BQ.Sound.error(); });
     net.on('resumeFail', () => {
@@ -503,6 +512,18 @@
     }).catch((err) => { setMpStatus(serverHelp(err), 'bad'); });
   }
 
+  // Watch a live game as a spectator: no seat is taken and no hand is ever
+  // revealed. Blank code joins the only live game.
+  function watchRoom() {
+    myName = ($('#mpName').value || '').trim() || 'Spectator';
+    const code = ($('#mpCode').value || '').trim().toUpperCase();
+    $('#mpError').textContent = '';
+    setMpStatus(code ? 'Joining stream ' + code + '…' : 'Looking for a live game…', '');
+    ensureConnected().then(() => {
+      net.send({ t: 'spectate', code, name: myName });
+    }).catch((err) => { setMpStatus(serverHelp(err), 'bad'); });
+  }
+
   function renderLobby(state) {
     lastLobbyState = state;
     $('#lobbyCode').textContent = state.code;
@@ -628,6 +649,12 @@
     // Final hand (game over): ui.onRoundEnd already set this button to
     // "See Final Results" — don't overwrite it with the next-round / ready label.
     if (btn.dataset.final === '1') return;
+    // Spectator: no "ready" to give — the game advances on its own. Just watch.
+    if (isSpectator) {
+      btn.style.display = 'none';
+      if (wait) { wait.style.display = ''; wait.textContent = '👁 Spectating — the next round starts automatically.'; }
+      return;
+    }
     btn.disabled = false;
     if (isMultiplayer) {
       btn.textContent = "I'm Ready ✓";
@@ -641,8 +668,13 @@
 
   // Game-over: only the host can start a new game.
   function setupGameOverControls() {
-    const host = !isMultiplayer || isHost;
     const b = $('#btnPlayAgain'), w = $('#gameOverWait');
+    if (isSpectator) {
+      if (b) b.style.display = 'none';
+      if (w) { w.style.display = ''; w.textContent = '👁 You are spectating. Leave any time to return to the menu.'; }
+      return;
+    }
+    const host = !isMultiplayer || isHost;
     if (b) b.style.display = host ? '' : 'none';
     if (w) w.style.display = host ? 'none' : '';
   }
@@ -676,8 +708,8 @@
     ui.setReconnecting(false);
     hidePause();
     ui.closeOverlay('vacancyOverlay');
-    netEngine = null; isMultiplayer = false;
-    document.body.classList.remove('mp');
+    netEngine = null; isMultiplayer = false; isSpectator = false;
+    document.body.classList.remove('mp', 'spectating');
     BQ.Sound.stopMusic();
     ui.show('menu');
   }
@@ -1045,6 +1077,7 @@
     // Multiplayer screens
     $('#btnCreate').addEventListener('click', () => { BQ.Sound.click(); createRoom(); });
     $('#btnJoin').addEventListener('click', () => { BQ.Sound.click(); joinRoom(); });
+    $('#btnWatch').addEventListener('click', () => { BQ.Sound.click(); watchRoom(); });
     $('#btnMpBack').addEventListener('click', () => { BQ.Sound.click(); ui.show('menu'); });
     $('#btnLobbyStart').addEventListener('click', () => {
       BQ.Sound.click();
