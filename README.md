@@ -209,3 +209,109 @@ engine.on('gameOver',    e => ...)  // {totals, winnerIndex, ranking}
 Click **⚙️** (in-game) or **Settings** (menu). Change any value, hit **Save** —
 it applies on the next round and persists across sessions. **Reset Defaults**
 restores `config.js` values.
+
+
+# Gameplay Tactics (Pairs Strategy)
+
+## Main Objective
+
+* The game is played in pairs.
+* Your primary goal is to avoid collecting points:
+
+  * Queen of Spades = 12 points
+  * Each Heart = 1 point
+* The strategy mainly revolves around forcing opponents to take the Queen of Spades.
+
+---
+
+# Queen of Spades Strategy
+
+## Basic Rule
+
+* The Queen of Spades can safely be played on:
+
+  * King of Spades
+  * Ace of Spades
+* If neither has been played and you cannot follow suit, you may throw the Queen on any other card.
+
+---
+
+## 1. If You Have the Queen of Spades (First Position)
+
+* Check which non-spade suit you have the fewest cards in.
+* Try to become void in that suit as early as possible.
+* Signal your partner about the suit you are trying to empty.
+* Once you are void:
+
+  * Your partner should lead that suit with a low card.
+  * An opponent will likely win the trick with a higher card.
+  * You can then discard the Queen of Spades onto that trick.
+
+---
+
+## 2. If You Have the Queen of Spades (Second, Third, or Fourth Position)
+
+* Try to gain control of the lead during the early or middle stage of the game.
+* Work toward becoming void in a selected suit.
+* Use the same setup strategy:
+
+  * Partner leads the target suit.
+  * Opponent wins the trick.
+  * You discard the Queen of Spades.
+
+---
+
+## 3. If You Do NOT Have the Queen, but Have the Ace or King of Spades
+
+* Avoid leading with spades early.
+* Win tricks using other suits whenever possible.
+* Help create opportunities for the Queen holder to dump the Queen onto opponents.
+* Be careful not to accidentally capture the Queen with your Ace or King.
+
+---
+
+## 4. If You Do NOT Have the Queen, Ace, or King of Spades
+
+* start with low spades early in the game.
+* This signals to your partner that:
+
+  * You do not hold the Queen of Spades.
+  * You also do not hold the high spades.
+* Your partner can then adjust strategy accordingly if they hold the Queen.
+
+---
+
+## 5. If Your Partner Has the Queen and You Have the Ace or King of Spades
+
+* Win tricks using other suits whenever possible.
+* Avoid taking tricks with the Ace or King of Spades unless absolutely necessary.
+* Indicate to your partner which suit you can safely use to dispose of your high spades later.
+* Protect your partner from accidentally losing the Queen onto your high spades.
+
+---
+
+## 6. If Your Partner Has the Queen and You Do NOT Have the Ace or King of Spades
+
+* Allow your partner to control the lead whenever possible.
+* Your partner will indicate the suit where they plan to discard the Queen.
+* In the first round of that suit:
+
+  * Save your high cards.
+* In the second round:
+
+  * Use your high card to gain control if needed.
+* Then lead back with a very low card (2, 3, or 4) in the same suit.
+* This forces opponents to win the trick with higher cards, allowing your partner to safely discard the Queen of Spades.
+
+---
+
+# General Team Communication Tips
+
+* Use card play patterns to communicate with your partner.
+* Avoid obvious risky plays that expose your strategy too early.
+* Keep track of:
+
+  * Played spades
+  * Remaining high cards
+  * Which suits players are void in
+* Timing and coordination are more important than aggressive trick-taking.

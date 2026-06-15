@@ -12,7 +12,7 @@
 
 'use strict';
 
-const CACHE = 'bq-v5';
+const CACHE = 'bq-v6';
 const CORE = [
   '/',
   '/index.html',
@@ -20,6 +20,7 @@ const CORE = [
   '/js/config.js',
   '/js/prefs.js',
   '/js/cards.js',
+  '/js/tactics.js',
   '/js/ai.js',
   '/js/engine.js',
   '/js/net.js',

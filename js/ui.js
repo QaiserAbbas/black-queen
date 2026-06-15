@@ -239,6 +239,15 @@
     /* ---- badges (avatars + score) ---------------------------------------- */
     renderBadges() {
       const e = this.engine;
+      // VIRTUAL PARTNERS: scoring stays solo, but bots play as pairs across the
+      // table (matching js/ai.js: partner = the seat n/2 around). Shown from the
+      // human's view — your team gold, the opposing pair blue — only when the
+      // partnership playbook is on AND the table is even (else no pairs exist).
+      const n = e.players.length;
+      const tacP = BQ.TACTICS && BQ.TACTICS.partners;
+      const teamsActive = (!tacP || tacP.enabled !== false) && n % 2 === 0;
+      const myPartner = teamsActive ? (this.me + n / 2) % n : -1;
+      const TEAM_FRIEND = '#e9c46a', TEAM_FOE = '#5db7de';
       $$('.badge').forEach((b) => {
         const seat = b.dataset.seat;
         const idx = this.indexOfSeat[seat];
@@ -252,6 +261,20 @@
         // Is this seat an AI/bot? (network: p.isBot; local: !isHuman)
         const isBot = (p.isBot != null) ? p.isBot : (p.isHuman === false);
         const isMe = (idx === this.me);
+        // Partnership pip + team-coloured avatar ring (see teamsActive above).
+        let teamPip = '';
+        if (teamsActive) {
+          const isMyTeam = (idx === this.me) || (idx === myPartner);
+          const color = isMyTeam ? TEAM_FRIEND : TEAM_FOE;
+          const mate = e.players[(idx + n / 2) % n];
+          const mateName = mate ? mate.name : '';
+          const tip = isMe ? 'Your team — partnered with ' + mateName
+                    : isMyTeam ? 'Your partner' + (mateName ? ' (paired with ' + mateName + ')' : '')
+                    : 'Opponent pair — partnered with ' + mateName;
+          teamPip = ' <span class="team-pip" title="' + tip + '"></span>';
+          b.style.setProperty('--team', color);
+        }
+        b.classList.toggle('has-team', teamsActive);
         // A dropped player's seat shows OFFLINE (a bot covers it until they return).
         const tag = p.offline ? '<span class="off-tag">⚠️ OFFLINE</span>'
                   : isBot ? '<span class="bot-tag">🤖 BOT</span>'
@@ -288,7 +311,7 @@
           : '';
         b.innerHTML =
           '<div class="avatar">' + p.name.charAt(0).toUpperCase() + '</div>' +
-          '<div class="meta"><span class="pname">' + p.name + ' ' + tag + shield +
+          '<div class="meta"><span class="pname">' + p.name + ' ' + tag + teamPip + shield +
           (stuck ? ' <span class="queen-tag">♛</span>' : '') + zeroTag + noTrickTag + '</span>' +
           '<span class="pscore">' +
             '<span class="st" title="Total score"><b>' + p.totalScore + '</b> pts</span>' +

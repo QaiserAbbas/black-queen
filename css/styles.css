@@ -320,6 +320,19 @@ html, body {
 .badge.is-bot { background: rgba(15,40,28,0.42); }
 .badge.is-me .avatar { box-shadow: 0 0 0 2px rgba(233,196,106,0.7); }
 
+/* Virtual-partner team indicator: a small coloured pip beside the name plus a
+   matching avatar ring. --team is set per badge in renderBadges (gold = your
+   team, blue = the opposing pair). Pairs share a colour, so who's-with-whom
+   reads at a glance; hover the pip for the partner's name. */
+.team-pip {
+  width: 9px; height: 9px; border-radius: 50%; flex: none;
+  background: var(--team, var(--gold));
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.45), 0 0 7px var(--team, var(--gold));
+}
+.badge.has-team .avatar {
+  box-shadow: 0 0 0 2px var(--team, var(--gold)), 0 0 10px -2px var(--team, var(--gold));
+}
+
 /* whose turn it is — strong, pulsing highlight (works for humans AND bots) */
 .badge.active {
   border-color: var(--gold-bright);
