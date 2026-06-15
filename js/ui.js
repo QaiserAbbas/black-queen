@@ -270,7 +270,9 @@
         // knows that if this player ends the round on 0 again, it's -12.
         const zStreak = p.consecutiveZeros || 0;
         const zLimit = e.rules.consecutiveZeroLimit || 0;
-        const atZeroRisk = !!e.rules.consecutiveZeroRuleEnabled && zLimit > 1 && zStreak >= zLimit - 1;
+        // Once they've picked up any points this round (conceded > 0) the streak
+        // will reset at round-end, so they're no longer at risk — hide the tag.
+        const atZeroRisk = !!e.rules.consecutiveZeroRuleEnabled && zLimit > 1 && zStreak >= zLimit - 1 && conceded === 0;
         // RULE 4 warning: this player has won no hand (trick) yet, and enough
         // hands have already been played this round that they're at risk of the
         // "no tricks taken" penalty. Show a pulsing "No Hands" tag.
