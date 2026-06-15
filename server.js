@@ -251,6 +251,7 @@ function makeRoom(hostClient) {
     ready: new Set(), // seats that confirmed "ready" for the next round
     paused: false,    // true while play is frozen (a player left mid-game)
     vacancy: null,    // {seat, name} the host is being asked to resolve
+    spectators: new Set(), // client ids watching the live stream (no seat, no cards)
   };
   rooms.set(code, room);
   return room;
@@ -313,13 +314,17 @@ function seatIsBot(room, seat) {
   return !s || s.isBot || !s.clientId || !clients.get(s.clientId);
 }
 
-// Send a raw (non-snapshot) payload to every connected player in the room.
+// Send a raw (non-snapshot) payload to every connected player AND spectator in
+// the room (presence, emotes, attacks, pause notices — all public info).
 function sendAll(room, payload) {
   room.seats.forEach((s) => {
     if (!s.clientId) return;
     const c = clients.get(s.clientId);
     if (c) c.send(payload);
   });
+  if (room.spectators) {
+    for (const id of room.spectators) { const c = clients.get(id); if (c) c.send(payload); }
+  }
 }
 
 // Live presence: who is connected, who dropped (bot stand-in), who's a bot.
@@ -580,6 +585,35 @@ function handleMessage(client, msg) {
       if (room.cleanupTimer) { clearTimeout(room.cleanupTimer); room.cleanupTimer = null; }
       client.send({ t: 'joined', code: room.code, seat, token, host: false });
       broadcastLobby(room);
+      break;
+    }
+    // Spectate / livestream: attach this connection as a watcher (no seat). It
+    // receives the public table with every hand HIDDEN and can never play.
+    case 'spectate': {
+      const code = (msg.code || '').toUpperCase().replace(/\s+/g, '');
+      let room = code ? rooms.get(code) : null;
+      if (!room) {
+        const live = [...rooms.values()].filter((r) => r.started && r.engine);
+        if (live.length === 1) room = live[0];
+        else if (live.length === 0) return client.send({ t: 'error', msg: 'No live game to watch yet. Ask the host to start one.' });
+        else return client.send({ t: 'error', msg: 'Which game? Live now: ' + live.map((r) => r.code).join(', ') + '. Type one of these.' });
+      }
+      // Leaving any prior seat/room association: a spectator holds no seat.
+      client.roomCode = room.code;
+      client.seat = -1;
+      client.name = (msg.name || 'Spectator').slice(0, 14);
+      room.spectators.add(client.id);
+      client.send({ t: 'spectating', code: room.code });
+      if (room.started && room.engine) {
+        const e = room.engine;
+        client.send({ t: 'game', snapshot: spectatorSnapshot(room), hint: { name: 'resync' } });
+        if (e.phase === 'roundEnd' && room.lastRoundEnd) {
+          client.send({ t: 'game', snapshot: spectatorSnapshot(room), hint: Object.assign({ name: 'roundEnd' }, room.lastRoundEnd) });
+        } else if (e.phase === 'gameOver' && room.lastGameOver) {
+          client.send({ t: 'game', snapshot: spectatorSnapshot(room), hint: Object.assign({ name: 'gameOver' }, room.lastGameOver) });
+        }
+        broadcastPresence(room);   // seed the "who's online" badges on the spectator's table
+      }
       break;
     }
     // Reconnect: a refreshed / dropped player presents their session token and
@@ -909,6 +943,18 @@ function snapshotFor(room, seat) {
   };
 }
 
+// A spectator's snapshot: the public table with EVERY hand hidden (only counts),
+// no playable cards, and never "your turn". One payload serves all spectators.
+function spectatorSnapshot(room) {
+  const s = snapshotFor(room, 0);     // seat 0 anchors the view (south)
+  s.you = -1;
+  s.spectator = true;
+  s.phase = 'playing';                // a spectator never acts
+  s.legalCardIds = [];
+  s.players = s.players.map((p) => Object.assign({}, p, { hand: null }));
+  return s;
+}
+
 function broadcast(room, hint) {
   room.seats.forEach((s, seat) => {
     if (!s.clientId) return;
@@ -916,6 +962,10 @@ function broadcast(room, hint) {
     if (!c) return;
     c.send({ t: 'game', snapshot: snapshotFor(room, seat), hint });
   });
+  if (room.spectators && room.spectators.size && room.engine) {
+    const snap = spectatorSnapshot(room);
+    for (const id of room.spectators) { const c = clients.get(id); if (c) c.send({ t: 'game', snapshot: snap, hint }); }
+  }
 }
 
 /* ---- disconnect handling ------------------------------------------------ */
@@ -924,6 +974,12 @@ function dropClient(client, intentional) {
   clients.delete(client.id);
   const room = rooms.get(client.roomCode);
   if (!room) return;
+
+  // Spectators hold no seat — just drop them from the watch list and stop.
+  if (room.spectators && room.spectators.has(client.id)) {
+    room.spectators.delete(client.id);
+    return;
+  }
 
   const seat = room.seats[client.seat];
   if (seat && seat.clientId === client.id) {

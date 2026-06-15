@@ -997,6 +997,22 @@ body[data-table="sand"], .table-sw[data-table="sand"] {
 /* anything tagged .mp-only appears only during an online game */
 body:not(.mp) .mp-only { display: none !important; }
 
+/* spectators watch only — hide every control that acts on the game (play
+   taunts, emotes, voice, smash picker, hand zoom) so the table is read-only */
+body.spectating #btnEmote,
+body.spectating #btnVoice,
+body.spectating #btnMic,
+body.spectating #attackDock,
+body.spectating #emotePanel,
+body.spectating #handZoom,
+body.spectating #btnMobileEmote { display: none !important; }
+/* a clear "watching" badge in the toolbar */
+body.spectating .round-chip::after {
+  content: ' · 👁 Spectating';
+  color: var(--gold-bright, #ffd479);
+  font-weight: 700;
+}
+
 /* connection status + "who's online" pills in the toolbar */
 .net-pill, .peers-chip {
   display: flex; align-items: center;

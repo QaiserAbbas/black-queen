@@ -116,7 +116,11 @@
     attach(engine) {
       this.engine = engine;
       // Which player is "me"? Local single-player => 0; networked => engine.me.
+      // A spectator has me = -1: no seat is "mine", so every hand renders
+      // face-down through the opponent path and nothing is ever playable.
       this.me = (engine.me != null) ? engine.me : 0;
+      this.spectator = !!engine.spectator;
+      document.body.classList.toggle('spectating', this.spectator);
 
       // Rotate seats so that "me" always sits at the south (bottom) seat.
       const n = engine.players.length;
@@ -151,8 +155,8 @@
         if (i === this.me) return;
         this.renderFacedown(this.seatOf[i], p.hand.length);
       });
-      // my hand — no deal animation on a reconnect
-      this.renderHumanHand(e.players[this.me].hand, false);
+      // my hand — no deal animation on a reconnect (spectators have no hand)
+      if (e.players[this.me]) this.renderHumanHand(e.players[this.me].hand, false);
       // the in-progress trick already on the felt
       this._clearTrick();
       (e.currentTrick || []).forEach((play) => {
@@ -364,9 +368,10 @@
       });
       BQ.Sound.shuffle();
 
-      // staggered reveal of my own hand
+      // staggered reveal of my own hand (spectators have no hand of their own —
+      // the south seat was already drawn face-down by the loop above)
       const human = this.engine.players[this.me];
-      this.renderHumanHand(human.hand, true);
+      if (human) this.renderHumanHand(human.hand, true);
       BQ.Sound.deal();
     }
 
