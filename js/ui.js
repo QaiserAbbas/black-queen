@@ -268,13 +268,22 @@
         // Partnership pip + team-coloured avatar ring (see teamsActive above).
         let teamPip = '';
         if (teamsActive) {
-          const isMyTeam = (idx === this.me) || (idx === myPartner);
-          const color = isMyTeam ? TEAM_FRIEND : TEAM_FOE;
           const mate = e.players[(idx + n / 2) % n];
           const mateName = mate ? mate.name : '';
-          const tip = isMe ? 'Your team — partnered with ' + mateName
-                    : isMyTeam ? 'Your partner' + (mateName ? ' (paired with ' + mateName + ')' : '')
-                    : 'Opponent pair — partnered with ' + mateName;
+          let color, tip;
+          if (this.me < 0) {
+            // Spectator: no "my" team — colour each pair distinctly so a watcher
+            // can still see who's partnered with whom.
+            const palette = ['#e9c46a', '#5db7de', '#e3779e', '#8fd17a'];
+            color = palette[(idx % (n / 2)) % palette.length];
+            tip = 'Paired with ' + mateName;
+          } else {
+            const isMyTeam = (idx === this.me) || (idx === myPartner);
+            color = isMyTeam ? TEAM_FRIEND : TEAM_FOE;
+            tip = isMe ? 'Your team — partnered with ' + mateName
+                : isMyTeam ? 'Your partner' + (mateName ? ' (paired with ' + mateName + ')' : '')
+                : 'Opponent pair — partnered with ' + mateName;
+          }
           teamPip = ' <span class="team-pip" title="' + tip + '"></span>';
           b.style.setProperty('--team', color);
         }
