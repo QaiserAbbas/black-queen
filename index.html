@@ -23,7 +23,12 @@
       <div class="menu-card-fan" id="menuFan"></div>
       <div class="title-wrap">
         <h1 class="title">BLACK <span class="queen-mark">QUEEN</span></h1>
-        <p class="subtitle">A Game of Hearts &amp; Nerve</p>
+        <p class="subtitle" id="menuSubtitle">A Game of Hearts &amp; Nerve</p>
+      </div>
+      <!-- Choose which game to play; the buttons below launch the selected one -->
+      <div class="game-pick" id="gamePick" role="tablist" aria-label="Choose a game">
+        <button class="game-tab active" id="pickBlackQueen" data-game="blackqueen">♛ Black Queen</button>
+        <button class="game-tab" id="pickTreeky" data-game="treeky">🎴 Treeky</button>
       </div>
       <div class="btn-row">
         <button class="btn" id="btnPlay">Single Player</button>
@@ -156,6 +161,63 @@
       </div>
     </section>
 
+    <!-- ===================== TREEKY GAME ===================== -->
+    <section id="treekyGame" class="screen">
+      <div class="toolbar">
+        <div class="left">
+          <div class="round-chip" id="tkRoundChip">🎴 Treeky</div>
+          <div class="net-pill mp-only" id="tkNetPill">🟢 online</div>
+          <div class="peers-chip mp-only" id="tkPeersChip" title="Who's connected">👥</div>
+        </div>
+        <div class="right">
+          <button class="icon-btn" id="tkBtnLook" title="Appearance">🎨</button>
+          <button class="icon-btn" id="tkBtnMusic" title="Mute music (sound effects stay on)">🎵</button>
+          <button class="icon-btn" id="tkBtnSound" title="Toggle all sound">🔊</button>
+          <button class="icon-btn" id="tkBtnStandings" title="Standings">📊</button>
+          <button class="icon-btn" id="tkBtnSettings" title="Game settings">⚙️</button>
+          <button class="icon-btn" id="tkQuit" title="Quit to menu">✕</button>
+        </div>
+      </div>
+
+      <div class="tk-table">
+        <!-- the round felt: opponents seated around it, piles in the middle -->
+        <div class="tk-felt">
+          <!-- opponents (3–10 players) — positioned around a circle by JS -->
+          <div class="tk-seats" id="tkSeats"></div>
+
+          <!-- centre: draw pile + discard pile + active suit -->
+          <div class="tk-center">
+            <div class="tk-pile tk-drawpile" id="tkDraw" title="Draw a card">
+              <div class="card back"></div>
+              <div class="tk-pile-label">Draw <span id="tkDrawCount">0</span></div>
+              <div class="tk-pending" id="tkPending" style="display:none"></div>
+            </div>
+            <div class="tk-pile tk-discardpile">
+              <div class="tk-discard" id="tkDiscard"></div>
+              <div class="tk-suit" id="tkSuit"></div>
+              <div class="tk-pile-label">Pile</div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- action bar + my hand + my seat badge (badge sits below the hand) -->
+        <div class="tk-bottom">
+          <div class="tk-controls" id="tkControls">
+            <span class="tk-status" id="tkStatus"></span>
+            <button class="btn small" id="tkBtnDraw" style="display:none">Draw a card</button>
+            <button class="btn small ghost" id="tkBtnPass" style="display:none">Pass</button>
+            <button class="btn small last-card" id="tkBtnLast" style="display:none">🔔 Last Card!</button>
+          </div>
+          <div class="tk-hand" id="tkHand"></div>
+          <div class="tk-myseat" id="tkMySeat"></div>
+        </div>
+      </div>
+
+      <!-- sound-effect / taunt dock (bottom-right) -->
+      <div class="attack-dock" id="tkAttackDock"></div>
+    </section>
+
     <!-- ===================== Overlays ===================== -->
     <!-- Scoreboard -->
     <div class="overlay" id="scoreOverlay">
@@ -196,9 +258,19 @@
     <!-- Settings (full rule editor) -->
     <div class="overlay" id="settingsOverlay">
       <div class="modal">
-        <h2>⚙️ Game Rules</h2>
-        <p style="color:#bfe0c9;font-size:0.85rem;margin-bottom:0.8rem">Every rule is editable. Changes apply on the next round (or next game for deal/player settings).</p>
-        <div class="settings-grid" id="settingsForm"></div>
+        <h2>⚙️ Game Settings</h2>
+        <div class="settings-tabs" id="settingsTabs" role="tablist">
+          <button class="settings-tab active" data-tab="blackqueen">♛ Black Queen</button>
+          <button class="settings-tab" data-tab="treeky">🎴 Treeky</button>
+        </div>
+        <div class="settings-pane" data-pane="blackqueen">
+          <p style="color:#bfe0c9;font-size:0.85rem;margin-bottom:0.8rem">Every rule is editable. Changes apply on the next round (or next game for deal/player settings).</p>
+          <div class="settings-grid" id="settingsForm"></div>
+        </div>
+        <div class="settings-pane" data-pane="treeky" style="display:none">
+          <p style="color:#bfe0c9;font-size:0.85rem;margin-bottom:0.8rem">Treeky options apply to your next game (and to rooms you host).</p>
+          <div class="tk-settings-form" id="settingsTreekyForm"></div>
+        </div>
         <div class="close-row">
           <button class="btn ghost small" id="btnResetRules">Reset Defaults</button>
           <button class="btn small" id="btnSaveRules">Save</button>
@@ -336,6 +408,67 @@
       </div>
     </div>
 
+    <!-- Treeky: pick a suit after playing a Jack -->
+    <div class="overlay" id="suitPickerOverlay">
+      <div class="modal suit-modal">
+        <h2>Choose a suit</h2>
+        <p style="color:#cfe6d6;margin:0.3rem 0 1rem">The next player must follow it.</p>
+        <div class="suit-pick-row">
+          <button class="suit-pick black" data-suit="spades">♠</button>
+          <button class="suit-pick red" data-suit="hearts">♥</button>
+          <button class="suit-pick red" data-suit="diamonds">♦</button>
+          <button class="suit-pick black" data-suit="clubs">♣</button>
+        </div>
+        <div class="close-row"><button class="btn small ghost" id="suitCancel">Cancel — pick a different card</button></div>
+      </div>
+    </div>
+
+    <!-- Treeky: game settings -->
+    <div class="overlay" id="tkSettingsOverlay">
+      <div class="modal">
+        <h2>🎴 Treeky Settings</h2>
+        <div id="tkSettingsForm" class="tk-settings-form"></div>
+        <div class="close-row">
+          <button class="btn ghost small" id="tkSettingsClose">Close</button>
+          <button class="btn small" id="tkSettingsSave">Save</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Treeky: live standings (cards left / finish order) -->
+    <div class="overlay" id="tkStandingsOverlay">
+      <div class="modal">
+        <h2>📊 Standings</h2>
+        <div class="tk-ranks" id="tkStandingsBody"></div>
+        <div class="close-row"><button class="btn small" id="tkStandingsClose">Close</button></div>
+      </div>
+    </div>
+
+    <!-- Treeky: deck finished — the table owner reshuffles the spent pile -->
+    <div class="overlay" id="tkReshuffleOverlay">
+      <div class="modal">
+        <h2>🔄 Deck finished</h2>
+        <p style="color:#cfe6d6;margin:0.5rem 0 1rem">The draw pile is empty. The last card stays on the table; everything else is reshuffled back into the deck.</p>
+        <div class="close-row">
+          <button class="btn small" id="tkReshuffleBtn">Reshuffle the deck</button>
+          <span id="tkReshuffleWait" style="display:none;color:#bfe0c9;align-self:center">Waiting for the table owner to reshuffle…</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Treeky: final results (finish order) -->
+    <div class="overlay" id="tkOverOverlay">
+      <div class="modal">
+        <h2>🏁 Game Over</h2>
+        <div class="tk-ranks" id="tkOverBody"></div>
+        <div class="close-row">
+          <span id="tkOverWait" style="display:none;color:#bfe0c9;align-self:center">Waiting for host…</span>
+          <button class="btn ghost small" id="tkOverLeave">Main Menu</button>
+          <button class="btn small" id="tkOverAgain">Play Again</button>
+        </div>
+      </div>
+    </div>
+
     <div class="hand-result" id="handResult"></div>
     <div id="fx"></div>
   </div>
@@ -347,11 +480,14 @@
   <script src="js/tactics.js"></script>
   <script src="js/ai.js"></script>
   <script src="js/engine.js"></script>
+  <script src="js/treeky-engine.js"></script>
+  <script src="js/treeky-ai.js"></script>
   <script src="js/net.js"></script>
   <script src="js/voice.js"></script>
   <script src="js/fx.js"></script>
   <script src="js/sound.js"></script>
   <script src="js/ui.js"></script>
+  <script src="js/treeky-ui.js"></script>
   <script src="js/main.js"></script>
 </body>
 </html>

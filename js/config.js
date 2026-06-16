@@ -81,6 +81,45 @@
     botThinkMs: 650,           // delay before a bot plays (feels human)
   };
 
+  /* =============================================================================
+   * TREEKY — RULE CONFIGURATION
+   * -----------------------------------------------------------------------------
+   * Treeky is a shedding game (Crazy-Eights / "Switch" family). Played with TWO
+   * full decks combined (every card appears twice). Goal: empty your hand. The
+   * first to finish is ranked 1st and becomes a spectator while the rest play on;
+   * the game ends when only one player is still holding cards. Everything the
+   * Treeky engine needs is read from here.
+   * ===========================================================================*/
+  const TREEKY_RULES = {
+    gameName: 'Treeky',
+
+    /* ---- Players ---------------------------------------------------------- */
+    playerCount: 4,            // single-player table size (1 human + 3 bots)
+    minPlayers: 3,             // game is valid with 3+ players
+    maxPlayers: 10,            // up to 10 seats online
+    fillToMin: 4,             // multiplayer: bots fill empty seats up to this many
+    botNames: ['Aisha', 'Omar', 'Zara', 'Bilal', 'Hana', 'Yusuf', 'Imran', 'Sana', 'Tariq'],
+
+    /* ---- Deck & deal ------------------------------------------------------ */
+    decks: 2,                  // 1 or 2 full 52-card decks (2 => 104 cards)
+    handSize: 10,              // RULE 1: ten cards each
+    // Direction of play: 'right' (default, counter-clockwise) or 'left'.
+    playDirection: 'right',
+
+    /* ---- Special cards (RULES 2, 6, 7) ------------------------------------ */
+    wildRank: 'J',             // a Jack is always playable and chooses the next suit
+    drawRank: '3',             // a 3 forces the next player to draw, and stacks
+    drawPenalty: 3,            // RULE 8: each 3 adds 3 cards to the pending draw
+
+    /* ---- Last-card rule (RULE 9) ------------------------------------------ */
+    lastCardPenalty: 1,        // miss the "Last Card!" call => draw this many next turn
+
+    /* ---- Presentation (shared with Black Queen) --------------------------- */
+    soundEnabled: true,
+    animationSpeed: 1,
+    botThinkMs: 1250,          // a touch slower so moves are easy to follow
+  };
+
   // Deep clone so callers can mutate freely without touching the defaults.
   function clone(obj) {
     return JSON.parse(JSON.stringify(obj));
@@ -88,6 +127,8 @@
 
   root.BQ = root.BQ || {};
   root.BQ.DEFAULT_RULES = DEFAULT_RULES;
+  root.BQ.TREEKY_RULES = TREEKY_RULES;
   root.BQ.cloneRules = function () { return clone(DEFAULT_RULES); };
+  root.BQ.cloneTreekyRules = function () { return clone(TREEKY_RULES); };
   root.BQ.cloneOf = clone;
 })(typeof window !== "undefined" ? window : globalThis);

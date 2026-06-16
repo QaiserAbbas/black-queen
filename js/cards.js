@@ -40,6 +40,32 @@
     return deck;
   }
 
+  // TREEKY: combine `count` full decks into one pile (default 2 => every card
+  // appears twice). Each physical copy needs a UNIQUE id so the engine can tell
+  // the two "3♠" apart in a hand; we suffix the copy number onto the base id.
+  function buildTreekyDeck(count) {
+    const decks = Math.max(1, count || 2);
+    const cards = [];
+    for (let d = 0; d < decks; d++) {
+      for (const suit of SUITS) {
+        for (const rank of RANKS) {
+          const c = new Card(rank, suit);
+          c.id = rank + '_' + suit + '#' + d;   // e.g. "3_spades#0", "3_spades#1"
+          cards.push(c);
+        }
+      }
+    }
+    return cards;
+  }
+
+  // Rebuild a Card from a snapshot, preserving its (possibly suffixed) id so
+  // Treeky's two-deck identities survive a round-trip over the wire.
+  function cardFrom(data) {
+    const c = new Card(data.rank, data.suit);
+    if (data.id) c.id = data.id;
+    return c;
+  }
+
   // Fisher–Yates shuffle (in place), returns the same array for chaining.
   function shuffle(deck) {
     for (let i = deck.length - 1; i > 0; i--) {
@@ -72,6 +98,8 @@
   root.BQ.SUIT_SYMBOL = SUIT_SYMBOL;
   root.BQ.Card = Card;
   root.BQ.buildDeck = buildDeck;
+  root.BQ.buildTreekyDeck = buildTreekyDeck;
+  root.BQ.cardFrom = cardFrom;
   root.BQ.shuffle = shuffle;
   root.BQ.deal = deal;
   root.BQ.sortHand = sortHand;

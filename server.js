@@ -25,6 +25,8 @@ require('./js/config.js');
 require('./js/cards.js');
 require('./js/ai.js');
 require('./js/engine.js');
+require('./js/treeky-engine.js');
+require('./js/treeky-ai.js');
 const BQ = globalThis.BQ;
 
 // Cloud hosts (Render/Railway/Fly/Heroku) inject the port via process.env.PORT.
@@ -240,6 +242,7 @@ function makeRoom(hostClient) {
     code,
     hostId: hostClient.id,
     hostToken: null,     // host's seat token — lets the host reclaim host on reconnect
+    gameType: 'blackqueen',  // 'blackqueen' | 'treeky' — set from the create message
     rules: BQ.cloneRules(),
     seats: [],        // [{clientId|null, name, isBot, token, disconnected, graceTimer}]
     engine: null,
@@ -517,6 +520,15 @@ function handleMessage(client, msg) {
     }
     case 'create': {
       const room = makeRoom(client);
+      // Pick the game: Treeky uses its own rule set + seat limits.
+      if (msg.gameType === 'treeky') {
+        room.gameType = 'treeky'; room.rules = BQ.cloneTreekyRules();
+        const tr = msg.treekyRules || {};
+        if ([7, 8, 10, 12].indexOf(tr.handSize) >= 0) room.rules.handSize = tr.handSize;
+        if (typeof tr.botThinkMs === 'number') room.rules.botThinkMs = Math.max(300, Math.min(3000, tr.botThinkMs));
+        if (tr.decks === 1 || tr.decks === 2) room.rules.decks = tr.decks;
+        if (tr.playDirection === 'left' || tr.playDirection === 'right') room.rules.playDirection = tr.playDirection;
+      }
       client.name = (msg.name || 'Host').slice(0, 14);
       const token = makeToken();
       room.hostToken = token;
@@ -534,7 +546,7 @@ function handleMessage(client, msg) {
 
       // Joinable rooms: a lobby with a free seat, OR an in-progress game where a
       // player left and the host chose to wait for a new player (an "open" seat).
-      const openLobby = [...rooms.values()].filter((r) => !r.started && r.seats.length < r.rules.playerCount);
+      const openLobby = [...rooms.values()].filter((r) => !r.started && r.seats.length < seatCap(r));
       const openMid = [...rooms.values()].filter((r) => r.started && r.seats.some((s) => s.open));
       const open = openLobby.concat(openMid);
 
@@ -572,12 +584,12 @@ function handleMessage(client, msg) {
         client.roomCode = room.code; client.seat = openSeat;
         if (room.cleanupTimer) { clearTimeout(room.cleanupTimer); room.cleanupTimer = null; }
         client.send({ t: 'joined', code: room.code, seat: openSeat, token, host: false });
-        client.send({ t: 'game', snapshot: snapshotFor(room, openSeat), hint: { name: 'resync' } });
+        client.send({ t: 'game', snapshot: seatSnap(room, openSeat), hint: { name: 'resync' } });
         resumePlay(room);   // clears the vacancy + un-freezes everyone
         break;
       }
 
-      if (room.seats.length >= room.rules.playerCount) return client.send({ t: 'error', msg: 'Room ' + room.code + ' is full.' });
+      if (room.seats.length >= seatCap(room)) return client.send({ t: 'error', msg: 'Room ' + room.code + ' is full.' });
       const seat = room.seats.length;
       const token = makeToken();
       room.seats.push({ clientId: client.id, name: client.name, isBot: false, token });
@@ -606,11 +618,16 @@ function handleMessage(client, msg) {
       client.send({ t: 'spectating', code: room.code });
       if (room.started && room.engine) {
         const e = room.engine;
-        client.send({ t: 'game', snapshot: spectatorSnapshot(room), hint: { name: 'resync' } });
-        if (e.phase === 'roundEnd' && room.lastRoundEnd) {
-          client.send({ t: 'game', snapshot: spectatorSnapshot(room), hint: Object.assign({ name: 'roundEnd' }, room.lastRoundEnd) });
+        const snap = () => (room.gameType === 'treeky' ? treekySpectatorSnapshot(room) : spectatorSnapshot(room));
+        client.send({ t: 'game', snapshot: snap(), hint: { name: 'resync' } });
+        if (room.gameType === 'treeky') {
+          if (e.phase === 'gameOver' && room.lastGameOver) {
+            client.send({ t: 'game', snapshot: snap(), hint: Object.assign({ name: 'gameOver' }, room.lastGameOver) });
+          }
+        } else if (e.phase === 'roundEnd' && room.lastRoundEnd) {
+          client.send({ t: 'game', snapshot: snap(), hint: Object.assign({ name: 'roundEnd' }, room.lastRoundEnd) });
         } else if (e.phase === 'gameOver' && room.lastGameOver) {
-          client.send({ t: 'game', snapshot: spectatorSnapshot(room), hint: Object.assign({ name: 'gameOver' }, room.lastGameOver) });
+          client.send({ t: 'game', snapshot: snap(), hint: Object.assign({ name: 'gameOver' }, room.lastGameOver) });
         }
         broadcastPresence(room);   // seed the "who's online" badges on the spectator's table
       }
@@ -647,13 +664,13 @@ function handleMessage(client, msg) {
       if (room.started && room.engine) {
         const e = room.engine;
         // 1) a full snapshot so the table fully repaints from the current state
-        client.send({ t: 'game', snapshot: snapshotFor(room, seatIdx), hint: { name: 'resync' } });
+        client.send({ t: 'game', snapshot: seatSnap(room, seatIdx), hint: { name: 'resync' } });
         // 2) re-show the round-summary / game-over overlay if we're parked there
-        if (e.phase === 'roundEnd' && room.lastRoundEnd) {
-          client.send({ t: 'game', snapshot: snapshotFor(room, seatIdx), hint: Object.assign({ name: 'roundEnd' }, room.lastRoundEnd) });
+        if (room.gameType !== 'treeky' && e.phase === 'roundEnd' && room.lastRoundEnd) {
+          client.send({ t: 'game', snapshot: seatSnap(room, seatIdx), hint: Object.assign({ name: 'roundEnd' }, room.lastRoundEnd) });
           broadcastReady(room);
         } else if (e.phase === 'gameOver' && room.lastGameOver) {
-          client.send({ t: 'game', snapshot: snapshotFor(room, seatIdx), hint: Object.assign({ name: 'gameOver' }, room.lastGameOver) });
+          client.send({ t: 'game', snapshot: seatSnap(room, seatIdx), hint: Object.assign({ name: 'gameOver' }, room.lastGameOver) });
         }
         // tell everyone else's table the seat is a human again (drops the BOT tag)
         broadcast(room, { name: 'sync' });
@@ -689,11 +706,52 @@ function handleMessage(client, msg) {
       }
       break;
     }
+    // ---- Treeky actions (play carries an optional suit for a Jack) -------
+    case 'draw': {
+      const room = rooms.get(client.roomCode);
+      if (!room || !room.engine || room.paused || room.gameType !== 'treeky') break;
+      const e = room.engine;
+      if (e.phase === 'awaitHuman' && e.currentPlayerIndex === client.seat) e.drawForTurn(client.seat);
+      break;
+    }
+    case 'pass': {
+      const room = rooms.get(client.roomCode);
+      if (!room || !room.engine || room.paused || room.gameType !== 'treeky') break;
+      const e = room.engine;
+      if (e.phase === 'awaitHuman' && e.currentPlayerIndex === client.seat) e.pass(client.seat);
+      break;
+    }
+    case 'declareLast': {
+      const room = rooms.get(client.roomCode);
+      if (!room || !room.engine || room.paused || room.gameType !== 'treeky') break;
+      const e = room.engine;
+      if (e.currentPlayerIndex === client.seat) e.declareLast(client.seat);
+      break;
+    }
+    case 'chooseSuit': {
+      const room = rooms.get(client.roomCode);
+      if (!room || !room.engine || room.paused || room.gameType !== 'treeky') break;
+      const e = room.engine;
+      if (e.phase === 'awaitSuit' && e.currentPlayerIndex === client.seat) e.chooseSuit(client.seat, msg.suit);
+      break;
+    }
+    // Table owner reshuffles the spent pile back into the deck (deck finished).
+    case 'reshuffle': {
+      const room = rooms.get(client.roomCode);
+      if (!room || !room.engine || room.gameType !== 'treeky') break;
+      if (client.id === room.hostId && room.engine.phase === 'awaitReshuffle') room.engine.reshuffle();
+      break;
+    }
     case 'play': {
       const room = rooms.get(client.roomCode);
       if (!room || !room.engine) return;
       if (room.paused) return;   // play is frozen (a player left) — ignore moves
       const e = room.engine;
+      if (room.gameType === 'treeky') {
+        if (e.phase === 'awaitHuman' && e.currentPlayerIndex === client.seat) e.playHuman(msg.cardId, msg.suit);
+        else if (e.phase === 'awaitSuit' && e.currentPlayerIndex === client.seat && msg.suit) e.chooseSuit(client.seat, msg.suit);
+        return;
+      }
       if (e.phase === 'awaitHuman' && e.currentPlayerIndex === client.seat) {
         // playHuman emits cardPlayed synchronously — the flag rides along into
         // that one broadcast (card-smash slam shown on every table).
@@ -825,6 +883,7 @@ function applySeatLayout(room, layout) {
 
 /* ---- start / run a game ------------------------------------------------- */
 function startGame(room) {
+  if (room.gameType === 'treeky') return startTreekyGame(room);
   // fill empty seats with bots up to playerCount
   const botPool = BQ.cloneOf(room.rules.botNames);
   while (room.seats.length < room.rules.playerCount) {
@@ -881,6 +940,7 @@ function wireEngine(room) {
 }
 
 function scheduleBot(room, seat) {
+  if (room.gameType === 'treeky') return scheduleTreekyBot(room, seat);
   if (room.paused) return;                        // play is frozen (a player left)
   if (seatAwaitingReconnect(room, seat)) return;  // dropped human still inside their grace window
   const e = room.engine;
@@ -896,6 +956,150 @@ function scheduleBot(room, seat) {
     }
   }, Math.max(120, room.rules.botThinkMs));
   if (s) s.botPlayTimer = timer;
+}
+
+/* =============================================================================
+ * TREEKY — server-side game type
+ * ===========================================================================*/
+
+// Max seats a room can hold: Treeky scales to maxPlayers; Black Queen is fixed.
+function seatCap(room) {
+  return room.gameType === 'treeky' ? (room.rules.maxPlayers || 10) : room.rules.playerCount;
+}
+// A per-seat snapshot for whichever game the room is running.
+function seatSnap(room, seat) {
+  return room.gameType === 'treeky' ? treekySnapshotFor(room, seat) : snapshotFor(room, seat);
+}
+
+function startTreekyGame(room) {
+  // Bots fill empty seats only up to the minimum table size (fillToMin, e.g. 4).
+  // With enough humans (up to maxPlayers) no bots are added.
+  const fillTo = Math.min(room.rules.fillToMin || 4, seatCap(room));
+  const botPool = BQ.cloneOf(room.rules.botNames);
+  const used = new Set(room.seats.map((s) => s.name));
+  while (room.seats.length < fillTo) {
+    let name = botPool.splice(Math.floor(Math.random() * botPool.length), 1)[0];
+    while (name && used.has(name)) name = botPool.splice(Math.floor(Math.random() * botPool.length), 1)[0];
+    name = name || ('Bot ' + (room.seats.length + 1));
+    used.add(name);
+    room.seats.push({ clientId: null, name, isBot: true });
+  }
+  room.started = true;
+  room.lastGameOver = null;
+
+  const engine = new BQ.TreekyEngine(room.rules);
+  engine.initWithPlayers(room.seats.map((s) => s.name));
+  room.engine = engine;
+
+  room.ready = new Set();
+  wireTreekyEngine(room);
+  engine.start();
+  broadcastPresence(room);
+}
+
+function wireTreekyEngine(room) {
+  const e = room.engine;
+  e.on('gameStart', () => broadcast(room, { name: 'gameStart' }));
+  e.on('cardPlayed', (ev) => broadcast(room, { name: 'cardPlayed', playerIndex: ev.playerIndex, isThree: ev.isThree, isJack: ev.isJack }));
+  e.on('suitChosen', (ev) => broadcast(room, { name: 'suitChosen', playerIndex: ev.playerIndex, suit: ev.suit }));
+  e.on('cardsDrawn', (ev) => broadcast(room, { name: 'cardsDrawn', playerIndex: ev.playerIndex, count: ev.count, penalty: ev.penalty, reason: ev.reason }));
+  e.on('lastCardDeclared', (ev) => broadcast(room, { name: 'lastCardDeclared', playerIndex: ev.playerIndex }));
+  e.on('needReshuffle', () => broadcast(room, { name: 'needReshuffle' }));
+  e.on('reshuffled', () => broadcast(room, { name: 'reshuffled' }));
+  e.on('playerFinished', (ev) => broadcast(room, { name: 'playerFinished', playerIndex: ev.playerIndex, rank: ev.rank, name: ev.name }));
+  e.on('gameOver', (ev) => {
+    room.lastGameOver = { ranking: ev.ranking, loserIndex: ev.loserIndex };
+    broadcast(room, Object.assign({ name: 'gameOver' }, room.lastGameOver));
+  });
+  e.on('turn', (ev) => {
+    broadcast(room, { name: 'turn' });
+    if (seatIsBot(room, ev.playerIndex)) scheduleBot(room, ev.playerIndex);
+  });
+}
+
+function scheduleTreekyBot(room, seat) {
+  if (room.paused) return;
+  if (seatAwaitingReconnect(room, seat)) return;
+  const e = room.engine;
+  const s = room.seats[seat];
+  if (s && s.botPlayTimer) { clearTimeout(s.botPlayTimer); s.botPlayTimer = null; }
+  const timer = setTimeout(() => {
+    if (s) s.botPlayTimer = null;
+    if (room.paused || !room.engine || room.engine !== e) return;
+    if (e.currentPlayerIndex !== seat || !seatIsBot(room, seat)) return;
+    if (e.phase === 'awaitSuit') { e.chooseSuit(seat, BQ.TreekyAI.bestSuit(e.players[seat])); return; }
+    if (e.phase !== 'awaitHuman') return;
+    const move = BQ.TreekyAI.chooseMove(e, seat);
+    if (!move || move.type === 'draw') { e.drawForTurn(seat); return; }
+    if (move.type === 'pass') { e.pass(seat); return; }
+    if (e.players[seat].hand.length === 2) e.players[seat].declaredLast = true;  // bots never miss
+    e.playHuman(move.cardId, move.suit);
+  }, Math.max(150, room.rules.botThinkMs));
+  if (s) s.botPlayTimer = timer;
+}
+
+// A small rules subset the Treeky client needs (the UI checks wildRank).
+function treekyRulesPayload(r) {
+  return { gameName: r.gameName, wildRank: r.wildRank, drawRank: r.drawRank, drawPenalty: r.drawPenalty, handSize: r.handSize };
+}
+
+function treekySnapshotFor(room, seat) {
+  const e = room.engine;
+  const myTurn = e.phase === 'awaitHuman' && e.currentPlayerIndex === seat;
+  const legal = myTurn ? e.legalCards(seat).map((c) => c.id) : [];
+  const top = e.topCard();
+  const phase = e.phase === 'awaitReshuffle' ? 'awaitReshuffle'
+    : myTurn ? 'awaitHuman'
+    : (e.phase === 'awaitSuit' && e.currentPlayerIndex === seat ? 'awaitSuit'
+    : (e.phase === 'gameOver' ? 'gameOver' : 'playing'));
+  return {
+    gameType: 'treeky',
+    you: seat,
+    youAreHost: !!(room.seats[seat] && room.seats[seat].clientId === room.hostId),
+    phase,
+    dealerIndex: e.dealerIndex,
+    currentPlayerIndex: e.currentPlayerIndex,
+    activeSuit: e.activeSuit,
+    pendingDraw: e.pendingDraw,
+    drawCount: e.drawPile.length,
+    topCard: top ? { rank: top.rank, suit: top.suit, id: top.id } : null,
+    finishedOrder: e.finishedOrder.slice(),
+    rules: treekyRulesPayload(e.rules),
+    players: e.players.map((p, i) => ({
+      index: i, name: p.name, isBot: seatIsBot(room, i),
+      offline: !!(room.seats[i] && room.seats[i].disconnected),
+      finished: p.finished, finishRank: p.finishRank,
+      handCount: p.hand.length,
+      hand: i === seat ? p.hand.map((c) => ({ rank: c.rank, suit: c.suit, id: c.id })) : null,
+    })),
+    legalCardIds: legal,
+    canDraw: myTurn && !e._drewThisTurn && !e._noDrawThisTurn,   // may draw even with a card to throw
+    canPass: myTurn && e._drewThisTurn && legal.length > 0,       // pass only after drawing, if you can throw
+  };
+}
+
+// One payload for all spectators (and finished players watching): every hand
+// hidden, the discard top + counts visible, never anyone's turn.
+function treekySpectatorSnapshot(room) {
+  const s = treekySnapshotFor(room, 0);
+  s.you = -1; s.spectator = true; s.youAreHost = false;
+  s.phase = (room.engine.phase === 'awaitReshuffle') ? 'awaitReshuffle' : 'playing';
+  s.legalCardIds = []; s.canDraw = false; s.canPass = false;
+  s.players = s.players.map((p) => Object.assign({}, p, { hand: null }));
+  return s;
+}
+
+function treekyBroadcast(room, hint) {
+  room.seats.forEach((s, seat) => {
+    if (!s.clientId) return;
+    const c = clients.get(s.clientId);
+    if (!c) return;
+    c.send({ t: 'game', snapshot: treekySnapshotFor(room, seat), hint });
+  });
+  if (room.spectators && room.spectators.size && room.engine) {
+    const snap = treekySpectatorSnapshot(room);
+    for (const id of room.spectators) { const c = clients.get(id); if (c) c.send({ t: 'game', snapshot: snap, hint }); }
+  }
 }
 
 /* ---- build a personalized snapshot for one seat ------------------------- */
@@ -956,6 +1160,7 @@ function spectatorSnapshot(room) {
 }
 
 function broadcast(room, hint) {
+  if (room.gameType === 'treeky') return treekyBroadcast(room, hint);
   room.seats.forEach((s, seat) => {
     if (!s.clientId) return;
     const c = clients.get(s.clientId);

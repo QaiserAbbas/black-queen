@@ -237,6 +237,94 @@
     }
   }
 
+  /* ---- TreekyNetworkEngine: read-only mirror for the Treeky UI ------------ */
+  // Same on/emit + action-method contract as TreekyEngine, but driven by server
+  // snapshots. The Treeky UI can't tell it apart from a local engine.
+  class TreekyNetworkEngine {
+    constructor(client) {
+      this.client = client;
+      this.listeners = {};
+      this.players = [];
+      this.rules = {};
+      this.me = 0;
+      this.spectator = false;
+      this.phase = 'idle';
+      this.currentPlayerIndex = 0;
+      this.activeSuit = null;
+      this.pendingDraw = 0;
+      this.drawPile = [];
+      this.discardPile = [];
+      this.finishedOrder = [];
+      this._lastTurn = null;
+    }
+
+    on(evt, fn) { (this.listeners[evt] = this.listeners[evt] || []).push(fn); return this; }
+    emit(evt, payload) { (this.listeners[evt] || []).forEach((fn) => fn(payload)); }
+
+    /* actions → server messages */
+    playHuman(cardId, suit) { this.client.send({ t: 'play', cardId, suit: suit || undefined }); return true; }
+    drawForTurn() { this.client.send({ t: 'draw' }); return true; }
+    pass() { this.client.send({ t: 'pass' }); return true; }
+    declareLast() { this.client.send({ t: 'declareLast' }); return true; }
+    chooseSuit(idx, suit) { this.client.send({ t: 'chooseSuit', suit }); return true; }
+    reshuffle() { this.client.send({ t: 'reshuffle' }); return true; }
+
+    get human() { return this.players[this.me]; }
+
+    ingest(s) {
+      this.me = s.you;
+      this.spectator = !!s.spectator;
+      this.youAreHost = !!s.youAreHost;
+      this.phase = s.phase;
+      this.rules = s.rules || {};
+      this.dealerIndex = s.dealerIndex || 0;
+      this.currentPlayerIndex = s.currentPlayerIndex;
+      this.activeSuit = s.activeSuit;
+      this.pendingDraw = s.pendingDraw || 0;
+      this.finishedOrder = s.finishedOrder || [];
+      this.drawPile = new Array(s.drawCount || 0).fill(null);  // length only — for the count label
+      this.discardPile = s.topCard ? [BQ.cardFrom(s.topCard)] : [];
+      this._lastTurn = {
+        playerIndex: s.currentPlayerIndex, legalCardIds: s.legalCardIds || [],
+        pendingDraw: this.pendingDraw, activeSuit: this.activeSuit,
+        topCard: s.topCard || null, canDraw: !!s.canDraw, canPass: !!s.canPass,
+      };
+      this.players = (s.players || []).map((p) => ({
+        index: p.index, name: p.name, isHuman: !p.isBot, isBot: p.isBot, offline: !!p.offline,
+        finished: !!p.finished, finishRank: p.finishRank || 0,
+        hand: p.hand ? p.hand.map((c) => BQ.cardFrom(c)) : new Array(p.handCount || 0).fill(null),
+      }));
+      this._lastSnapshot = s;
+    }
+
+    handle(s, hint) {
+      this.ingest(s);
+      const name = hint && hint.name;
+      const turnEv = () => this._lastTurn;
+      switch (name) {
+        case 'gameStart': this.emit('gameStart', {}); this.emit('turn', turnEv()); break;
+        case 'turn': this.emit('turn', turnEv()); break;
+        case 'cardPlayed':
+          this.emit('cardPlayed', { playerIndex: hint.playerIndex, isThree: hint.isThree, isJack: hint.isJack });
+          break;
+        case 'suitChosen': this.emit('suitChosen', { playerIndex: hint.playerIndex, suit: hint.suit }); break;
+        case 'cardsDrawn':
+          this.emit('cardsDrawn', { playerIndex: hint.playerIndex, count: hint.count, penalty: hint.penalty, reason: hint.reason });
+          break;
+        case 'lastCardDeclared': this.emit('lastCardDeclared', { playerIndex: hint.playerIndex }); break;
+        case 'needReshuffle': this.emit('needReshuffle', {}); break;
+        case 'reshuffled': this.emit('reshuffled', {}); this.emit('turn', turnEv()); break;
+        case 'playerFinished':
+          this.emit('playerFinished', { playerIndex: hint.playerIndex, rank: hint.rank, name: hint.name });
+          break;
+        case 'gameOver': this.emit('gameOver', { ranking: hint.ranking, loserIndex: hint.loserIndex }); break;
+        case 'resync': this.emit('resync', {}); this.emit('turn', turnEv()); break;
+        default: this.emit('state', { phase: s.phase }); break;
+      }
+    }
+  }
+
   BQ.NetClient = NetClient;
   BQ.NetworkEngine = NetworkEngine;
+  BQ.TreekyNetworkEngine = TreekyNetworkEngine;
 })(typeof window !== 'undefined' ? window : globalThis);

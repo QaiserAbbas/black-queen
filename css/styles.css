@@ -1583,3 +1583,219 @@ body.hand-scroll .hand.south::-webkit-scrollbar-thumb { background: rgba(233,196
 .hand-zoom button:active { background: rgba(233,196,106,0.3); }
 /* in mobile mode it sits above the bottom bar */
 body.mobile .hand-zoom { bottom: calc(env(safe-area-inset-bottom) + 64px); }
+
+/* =============================================================================
+ * TREEKY  — game-picker, table, piles, hand, suit picker, results
+ * ===========================================================================*/
+
+/* ---- menu game picker --------------------------------------------------- */
+.game-pick {
+  display: flex; gap: 0.5rem; justify-content: center;
+  margin: 0 auto 1.3rem; padding: 0.3rem;
+  background: rgba(0,0,0,0.28); border: 1px solid rgba(233,196,106,0.25);
+  border-radius: 999px; width: max-content; max-width: 92vw; z-index: 2;
+}
+.game-tab {
+  font: inherit; font-weight: 700; cursor: pointer; color: #d8e6dc;
+  padding: 0.55rem 1.25rem; border-radius: 999px; border: 0;
+  background: transparent; transition: all 0.18s ease; white-space: nowrap;
+}
+.game-tab:hover { color: #fff; }
+.game-tab.active {
+  color: #1a1208; background: linear-gradient(180deg, var(--gold-bright), var(--gold));
+  box-shadow: 0 3px 12px rgba(0,0,0,0.35);
+}
+
+/* ---- full-space table (Black-Queen style cross layout) ----------------- */
+#treekyGame .tk-table {
+  position: absolute; inset: 0; top: 54px;
+  --card-w: 80px; --card-h: 112px;     /* central pile + my hand cards */
+  --tkfd-w: 46px; --tkfd-h: 64px;      /* opponents' face-down fan cards */
+}
+/* the felt fills the WHOLE space — no round table */
+.tk-felt {
+  position: absolute; inset: 0; isolation: isolate;
+  background:
+    radial-gradient(ellipse at 50% 42%, rgba(255,255,255,0.045), transparent 60%),
+    radial-gradient(ellipse at 50% 46%, var(--felt-1), var(--felt-2) 72%, var(--felt-edge));
+}
+
+/* seats are absolutely positioned across the felt by JS (left/top %). */
+.tk-seats { position: absolute; inset: 0; pointer-events: none; z-index: 2; }
+.tk-seat {
+  position: absolute; transform: translate(-50%, -50%);
+  display: flex; flex-direction: column; align-items: center; gap: 4px; width: 156px;
+}
+/* lower-half seats flip so the face-down fan still points toward the centre */
+.tk-seat.lower { flex-direction: column-reverse; }
+.tk-seat.finished { opacity: 0.55; }
+
+/* a face-down fan of cards "in front of" each opponent */
+.tk-fan { display: flex; justify-content: center; height: var(--tkfd-h, 50px); }
+.tk-fan .card.back {
+  width: var(--tkfd-w, 36px); height: var(--tkfd-h, 50px);
+  margin-left: calc(-0.66 * var(--tkfd-w, 36px));
+}
+.tk-fan .card.back:first-child { margin-left: 0; }
+
+/* player badge — same language as Black Queen's .badge */
+.tk-badge {
+  display: inline-flex; align-items: center; gap: 0.55rem;
+  background: rgba(0,0,0,0.40); border: 1.5px solid rgba(255,255,255,0.12);
+  padding: 0.34rem 0.75rem; border-radius: 999px; backdrop-filter: blur(4px);
+  transition: border-color 0.2s, box-shadow 0.2s; max-width: 156px;
+}
+.tk-badge.is-bot { background: rgba(15,40,28,0.46); }
+.tk-badge.is-me { border-color: rgba(233,196,106,0.55); }
+.tk-seat.active .tk-badge,
+.tk-myseat.active .tk-badge {
+  border-color: var(--gold-bright);
+  box-shadow: 0 0 0 1px var(--gold), 0 0 18px rgba(233,196,106,0.55);
+}
+.tk-ava {
+  position: relative;
+  width: 34px; height: 34px; border-radius: 50%; flex: 0 0 auto;
+  display: grid; place-items: center; font-weight: 800; color: #1a1208; font-size: 0.95rem;
+  background: linear-gradient(135deg, var(--gold-bright), var(--gold));
+}
+.tk-badge.is-me .tk-ava { box-shadow: 0 0 0 2px rgba(233,196,106,0.7); }
+.tk-seat.active .tk-ava,
+.tk-myseat.active .tk-ava { animation: tkPulse 1.1s ease-in-out infinite; }
+@keyframes tkPulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.12); } }
+/* dealer "D" pip on the avatar, like Black Queen */
+.tk-badge.dealer .tk-ava::after {
+  content: 'D'; position: absolute; right: -3px; bottom: -3px;
+  width: 15px; height: 15px; border-radius: 50%; font-size: 0.58rem; font-weight: 800;
+  display: grid; place-items: center; color: #1a1208;
+  background: linear-gradient(135deg, #fff, var(--gold)); box-shadow: 0 0 0 1.5px rgba(0,0,0,0.5);
+}
+.tk-bmeta { display: flex; flex-direction: column; gap: 1px; line-height: 1.14; min-width: 0; }
+.tk-bname { font-size: 0.82rem; font-weight: 700; color: #eaf3ec; display: inline-flex; align-items: center; gap: 0.28rem; white-space: nowrap; }
+.tk-bname .nm { max-width: 66px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tk-dot { width: 7px; height: 7px; border-radius: 50%; background: #46d17a; box-shadow: 0 0 5px rgba(70,209,122,0.85); flex: 0 0 auto; }
+.tk-dot.bot { background: #8aa0a8; box-shadow: none; }
+.tk-bstats { font-size: 0.72rem; color: #9fc3ad; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.tk-bstats b { color: var(--gold-bright); font-weight: 800; }
+.tk-bstats.one b { color: #ffb27a; }
+.tk-bstats.fin b { color: #6fe3a0; }
+
+/* main Settings panel tabs (Black Queen / Treeky) */
+.settings-tabs { display: flex; gap: 0.4rem; justify-content: center; margin-bottom: 0.9rem; flex-wrap: wrap; }
+.settings-tab {
+  font: inherit; font-weight: 700; cursor: pointer; color: #d8e6dc;
+  padding: 0.4rem 1.05rem; border-radius: 999px; transition: all 0.16s ease;
+  border: 1px solid rgba(255,255,255,0.12); background: rgba(0,0,0,0.25);
+}
+.settings-tab:hover { color: #fff; }
+.settings-tab.active {
+  color: #1a1208; border-color: transparent;
+  background: linear-gradient(180deg, var(--gold-bright), var(--gold));
+}
+
+/* Treeky settings form */
+.tk-settings-form { display: flex; flex-direction: column; gap: 0.7rem; margin: 0.7rem 0; text-align: left; }
+.tk-settings-form .row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.tk-settings-form label { color: #d8e6dc; font-weight: 600; font-size: 0.9rem; }
+.tk-settings-form select { background: rgba(0,0,0,0.3); color: #eaf3ec; border: 1px solid rgba(255,255,255,0.2); border-radius: 8px; padding: 0.35rem 0.6rem; font: inherit; }
+.tk-settings-form select:focus { border-color: var(--gold); outline: none; }
+.tk-settings-form option { color: #1a1208; }
+
+/* my own seat badge, sitting just above my hand at the bottom */
+.tk-myseat { display: flex; justify-content: center; min-height: 0; }
+.tk-myseat:empty { display: none; }
+
+/* centre: draw + discard piles, dead centre of the felt */
+.tk-center {
+  position: absolute; left: 50%; top: 45%; transform: translate(-50%, -50%); z-index: 2;
+  display: flex; align-items: center; justify-content: center; gap: clamp(0.8rem, 3vw, 2rem);
+}
+/* a soft pool of light under the piles */
+.tk-center::before {
+  content: ''; position: absolute; left: 50%; top: 52%; transform: translate(-50%, -50%);
+  width: 280px; height: 170px; z-index: -1; pointer-events: none;
+  background: radial-gradient(ellipse at center, rgba(0,0,0,0.32), transparent 72%);
+}
+.tk-pile { position: relative; display: flex; flex-direction: column; align-items: center; gap: 0.4rem; }
+.tk-discard .card, .tk-drawpile .card.back { box-shadow: 0 10px 24px rgba(0,0,0,0.55); }
+.tk-pile-label { font-size: 0.72rem; color: #bfe0c9; letter-spacing: 0.06em; text-transform: uppercase; }
+.tk-drawpile { cursor: default; }
+.tk-drawpile.drawable { cursor: pointer; }
+.tk-drawpile.drawable .card.back {
+  box-shadow: 0 0 0 2px var(--gold-bright), 0 8px 22px rgba(0,0,0,0.5);
+  animation: tkPulse 1.2s ease-in-out infinite;
+}
+.tk-discardpile { position: relative; }
+.tk-discard { width: var(--card-w); height: var(--card-h); }
+.tk-suit {
+  position: absolute; top: -10px; right: -10px;
+  width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center;
+  font-size: 1.1rem; font-weight: 800; background: #fff; color: #1c2530;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.5), 0 0 0 2px var(--gold);
+}
+.tk-suit.red { color: var(--crimson); }
+.tk-pending {
+  position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%);
+  background: #c0392b; color: #fff; font-weight: 800; font-size: 0.78rem;
+  padding: 3px 9px; border-radius: 999px; white-space: nowrap;
+  box-shadow: 0 3px 10px rgba(0,0,0,0.5); animation: tkPulse 1s ease-in-out infinite;
+}
+
+/* my hand + controls, anchored at the bottom and layered above the felt */
+.tk-bottom {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 6;
+  display: flex; flex-direction: column; align-items: center; gap: 0.4rem;
+  padding: 0.3rem 0.6rem calc(env(safe-area-inset-bottom) + 0.4rem);
+}
+.tk-controls { display: flex; align-items: center; gap: 0.7rem; flex-wrap: wrap; justify-content: center; min-height: 36px; }
+.tk-status { color: #d8e6dc; font-size: 0.9rem; font-weight: 600; text-shadow: 0 1px 4px rgba(0,0,0,0.6); }
+.btn.small.last-card {
+  background: linear-gradient(180deg, #ffd877, #f39c12); color: #2a1500;
+  animation: tkPulse 0.9s ease-in-out infinite;
+}
+.btn.small.last-card.called { animation: none; filter: grayscale(0.3); opacity: 0.7; }
+
+.tk-hand {
+  display: flex; justify-content: center; align-items: flex-end;
+  padding: 0.4rem 0.6rem 0.2rem; max-width: 100%; flex-wrap: wrap; gap: 2px;
+}
+.tk-hand .card { margin-left: -22px; transition: transform 0.14s ease, box-shadow 0.14s ease; }
+.tk-hand .card:first-child { margin-left: 0; }
+.tk-hand.my-turn .card.legal { cursor: pointer; }
+.tk-hand.my-turn .card.legal:hover { transform: translateY(-16px); box-shadow: 0 10px 22px rgba(0,0,0,0.5), 0 0 0 2px var(--gold-bright); z-index: 5; }
+.tk-hand.my-turn .card.disabled { filter: brightness(0.62) saturate(0.7); cursor: not-allowed; }
+.tk-hand.my-turn .card.legal { box-shadow: 0 6px 16px var(--shadow), 0 0 0 2px rgba(255,216,119,0.55); }
+
+/* ---- suit picker overlay ------------------------------------------------ */
+.suit-modal { text-align: center; }
+.suit-pick-row { display: flex; gap: 0.8rem; justify-content: center; }
+.suit-pick {
+  width: 72px; height: 96px; border-radius: 10px; font-size: 2.4rem; cursor: pointer;
+  background: #fff; border: 2px solid rgba(0,0,0,0.15); color: #1c2530;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4); transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+.suit-pick.red { color: var(--crimson); }
+.suit-pick:hover { transform: translateY(-4px); box-shadow: 0 10px 22px rgba(0,0,0,0.5), 0 0 0 2px var(--gold-bright); }
+
+/* ---- results ------------------------------------------------------------ */
+.tk-ranks { display: flex; flex-direction: column; gap: 0.4rem; margin: 0.6rem 0; }
+.tk-rank-row {
+  display: flex; align-items: center; gap: 0.7rem; padding: 0.5rem 0.8rem; border-radius: 10px;
+  background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08);
+}
+.tk-rank-row.winner { border-color: var(--gold); box-shadow: 0 0 14px rgba(233,196,106,0.3); }
+.tk-rank-row.loser { opacity: 0.75; }
+.tk-medal { font-size: 1.3rem; }
+.tk-rank-name { flex: 1 1 auto; font-weight: 700; color: #eaf3ec; text-align: left; }
+.tk-rank-tag { font-size: 0.78rem; color: #bfe0c9; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+
+/* tighter on small screens */
+@media (max-width: 640px) {
+  #treekyGame .tk-table { --card-w: 54px; --card-h: 76px; --tkfd-w: 30px; --tkfd-h: 42px; }
+  .tk-hand .card { margin-left: -30px; }
+  .tk-seat { width: 116px; }
+  .tk-badge { padding: 0.26rem 0.5rem; gap: 0.4rem; }
+  .tk-ava { width: 28px; height: 28px; font-size: 0.82rem; }
+  .tk-bname { font-size: 0.74rem; }
+  .tk-bname .nm { max-width: 48px; }
+  .tk-bstats { font-size: 0.66rem; }
+}

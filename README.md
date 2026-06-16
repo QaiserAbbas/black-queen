@@ -3,6 +3,26 @@
 A polished, fully-playable Black Queen card game (a Hearts-style trick-taking
 game) with a clean, **rule-driven engine** designed to be modified later.
 
+**Two games in one.** A toggle on the menu picks the game; everything else
+(single-player, LAN/online multiplayer, spectating, bots) works for both:
+
+- **♛ Black Queen** — the classic Hearts-style trick-taker.
+- **🎴 Treeky** — a fast *shedding* game (Crazy-Eights / "Switch" family).
+
+### 🎴 Treeky — how it plays
+
+Empty your hand first. The first to finish is ranked 1st and then **spectates**
+while the rest keep playing; the game ends when only one player still holds cards
+and the **finish order** is shown. Single-player is you + 3 bots; online supports
+**3–10 players** (empty seats fill with bots up to 4).
+
+- Played with **two full decks** (every card appears twice). Each player is dealt **10 cards**; one card is flipped to start the pile (re-flipped if it's a 3 or a Jack).
+- The player **after the dealer** goes first.
+- Play a card that matches the pile's **suit** or **number**. A **Jack** is always playable and lets you **choose the next suit**.
+- No legal card? **Draw one** — play it if it fits, otherwise your turn ends.
+- A **3** makes the next player **draw 3** — but they can stack their own 3 to pass it on (+3 each time).
+- Down to one card? Tap **🔔 Last Card!** as you play your second-to-last card. Forget, and you draw a penalty card on your next turn.
+
 ## Run it
 
 **Single player** — just open `index.html` in any modern browser. Works offline,
@@ -315,3 +335,149 @@ restores `config.js` values.
   * Remaining high cards
   * Which suits players are void in
 * Timing and coordination are more important than aggressive trick-taking.
+
+
+# 🎴 Treeky — Complete Gameplay
+
+Treeky is the second game in this app — a fast **shedding** game (Crazy-Eights /
+"Switch" family). Pick it from the **game toggle on the menu** (♛ Black Queen /
+🎴 Treeky); everything else — single-player, LAN/online multiplayer, spectating,
+bots — works for both games.
+
+## Objective
+
+**Empty your hand.** The first player to get rid of all their cards finishes
+**1st** and then **spectates** while everyone else keeps playing. The game ends
+when only **one** player is still holding cards (they place **last**), and the
+final **finish order** is shown.
+
+## Players & table
+
+* **3 to 10 players.**
+* **Single player:** you + 3 bots (4 at the table). Table size is adjustable in
+  Settings (3–6).
+* **Online:** join with friends; any empty seats are filled with bots up to a
+  minimum of 4, and up to 10 players total.
+* Players are seated around the felt — you at the bottom, opponents across the
+  top and sides — each showing a face-down stack of their cards. A **D** marks
+  the dealer; the glowing badge is whoever's turn it is.
+
+## Setup
+
+1. The game uses **two full decks shuffled together** (104 cards — every card
+   appears twice).
+2. Each player is dealt **10 cards** (configurable: 7 / 8 / 10 / 12 in Settings).
+3. One card is turned face-up to start the **pile**. If it's a **3** or a
+   **Jack**, it's reshuffled and another is flipped until a normal card shows.
+4. The player **after the dealer** goes first; play proceeds one way around the
+   table.
+
+## Matching — what you can play
+
+On your turn you may throw a card that matches the top of the pile by:
+
+* **Suit** (♠ / ♥ / ♦ / ♣ — the "colour"), **or**
+* **Number** (same rank), **or**
+* a **Jack** (always playable — see below).
+
+Playing a **same-number** card of a different suit switches the active suit to
+the card you played, so the next player must follow the new suit.
+
+## Your turn — throw or draw
+
+* You may either **throw a legal card** *or* **draw a card** — and you can choose
+  to draw **even if you have a playable card**.
+* **After you draw** (a normal draw *or* a 3-penalty pickup) you get a **Pass**
+  option: throw any legal card, or **pass** the turn on.
+* If after drawing you still have **nothing to throw**, the turn moves to the
+  **next player** automatically.
+* There is **no pass before drawing** — on a fresh turn you throw or draw.
+
+## Special cards
+
+### Jack — wild
+
+* A Jack can be played on **anything**.
+* When you play it, you **choose the new suit** the next player must follow (a
+  suit picker pops up). Change your mind? **Cancel** the picker and play a
+  different card instead.
+
+### 3 — "pick three" (stackable)
+
+* Play a **3** and the **next player must draw 3 cards** (you'll hear *"Pick 3
+  cards!"*).
+* If that player also has a **3**, they can **stack** it instead of drawing — now
+  the following player must draw **6** (*"Pick 6 cards!"*), and so on (+3 each
+  stacked 3).
+* A player who can't (or won't) stack **draws the whole accumulated amount**.
+  After picking up they still get to **throw a card or pass** (or the turn passes
+  on if they have nothing to throw).
+
+## "Last Card!" call
+
+* When you play your **second-to-last** card (leaving you with one), you must tap
+  the pulsing **🔔 Last Card!** button to announce it.
+* **Forget to call it?** On your **next turn** you automatically **draw one
+  penalty card** — and you may **not draw again** that turn. If you then have a
+  card to throw you play it; otherwise the turn passes to the next player.
+* (Bots always call their last card. The penalty applies at most once per time
+  you drop to a single card.)
+
+## When the deck runs out
+
+If the draw pile can't cover a required draw, a **popup asks the table owner to
+reshuffle**. The **last card thrown stays on the pile**; every other discarded
+card is shuffled back into the deck, and play resumes right where it paused.
+
+## Finishing & results
+
+* Empty your hand to **finish**. You're ranked in the order players go out (1st,
+  2nd, …) and then **watch** the rest of the game.
+* The game ends when only one player still holds cards — they finish **last**.
+* The results panel lists everyone in **finish order**. **Play Again** (host)
+  starts a fresh game.
+
+## In-game controls
+
+* **Toolbar (top-right):** 🎨 Appearance · 🎵 Music · 🔊 Sound · 📊 **Standings**
+  (live leaderboard by cards left / finish order) · ⚙️ **Settings** · ✕ Quit.
+* **⚙️ Settings:** Table size (single-player), Cards per player, and Bot speed.
+* **Effects dock (bottom-right):** 🦁 Lion · 🐉 Dragon · 💣 Bomb · 👻 Ghost ·
+  💀 Doom — fun taunt animations + sounds you can send to the table.
+* **Spectate:** from Multiplayer, tap **👁 Watch** to watch a live game — every
+  hand stays hidden; only the discard pile and card counts are shown.
+
+## Quick strategy
+
+* **Hold your Jacks.** They're your escape hatch — save them for when you have no
+  other legal card, or to swing the suit to one you're long in.
+* **Watch the player to your left.** If they're down to one or two cards, a **3**
+  played into them can wreck their plan (and saves a "Last Card" finish).
+* **Shed your long suits** so you always have something to follow with.
+* **Stack 3s** when you can — passing a +6 or +9 along is brutal, and it sheds a
+  card at the same time.
+* **Drawing on purpose** can be smart: take a card to dodge a forced bad play, or
+  to keep a key card for a better moment.
+* **Don't forget the call** — getting caught one card short is a free penalty
+  card for you and a tempo gift to everyone else.
+
+## For developers — where Treeky lives
+
+Treeky is **purely additive**; the Black Queen engine/UI/AI are untouched. A
+`gameType` (`'blackqueen'` | `'treeky'`) selected on the menu flows through the
+single-player launch, the create-room message, the room, and every snapshot;
+clients pick the matching engine-mirror + UI by reading `snapshot.gameType`.
+
+* `js/treeky-engine.js` — `BQ.TreekyEngine`: headless rules/state, same `on/emit`
+  bus as the Black Queen engine. Events: `gameStart`, `turn`, `cardPlayed`,
+  `suitChosen`, `cardsDrawn`, `lastCardDeclared`, `playerFinished`, `gameOver`,
+  `needReshuffle`, `reshuffled`. Phases: `playing | awaitHuman | awaitSuit |
+  awaitReshuffle | gameOver`.
+* `js/treeky-ai.js` — `BQ.TreekyAI.chooseMove(engine, seat)`.
+* `js/treeky-ui.js` — `BQ.TreekyUI`, the table renderer (same `attach(engine)`
+  contract as `ui.js`).
+* `js/config.js` — `TREEKY_RULES` + `BQ.cloneTreekyRules()`.
+* `js/cards.js` — `BQ.buildTreekyDeck()` (two decks, unique per-copy ids).
+* `js/net.js` — `BQ.TreekyNetworkEngine` (read-only server mirror).
+* `server.js` — `gameType` branches: `startTreekyGame`, `wireTreekyEngine`,
+  `scheduleTreekyBot`, `treekySnapshotFor`, `treekySpectatorSnapshot`.

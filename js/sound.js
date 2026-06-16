@@ -314,6 +314,22 @@
       } catch (_) {}
     },
 
+    // Generic spoken announcement (e.g. Treeky's "Pick three!"). Web Speech,
+    // zero-dependency; gated on the master sound toggle only.
+    say(text, opt) {
+      if (!enabled || !text) return;
+      const S = root.speechSynthesis;
+      if (!S || typeof SpeechSynthesisUtterance === 'undefined') return;
+      try {
+        const u = new SpeechSynthesisUtterance(text);
+        u.rate = (opt && opt.rate) || 1.1;
+        u.pitch = (opt && opt.pitch) || 1;
+        u.volume = Math.max(0, Math.min(1, volumes.master * (volumes.punch || 1)));
+        S.cancel();
+        S.speak(u);
+      } catch (_) {}
+    },
+
     shuffle() {
       if (sample('shuffle', 0.8)) return;
       const c = ensure(); if (!c) return;
