@@ -59,6 +59,14 @@
     heartsMustBeBroken: false, // off by default: hearts may be led at any time
     queenBreaksHearts: true,   // playing the Black Queen also "breaks" hearts
 
+    /* ---- Trailing-player reshuffle (multiplayer only) --------------------- */
+    // Before a round begins, the player with the MOST points (worst position,
+    // since LOW wins) may force a fresh re-deal — up to `reshuffleMax` times per
+    // round. Off by default so single-player is unaffected; the server turns it
+    // on for online Black Queen tables. Skipped on round 1 (everyone tied at 0).
+    reshuffleEnabled: false,
+    reshuffleMax: 2,
+
     // MUST-THROW QUEEN: when you can't follow the led suit (you're void) and you
     // hold the Black Queen, you are forced to discard it — you can't hold it back.
     mustThrowQueen: true,

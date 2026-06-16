@@ -218,7 +218,19 @@ engine.on('trickWon',    e => ...)  // {winnerIndex, trick, points}
 engine.on('heartsBroken',e => ...)
 engine.on('roundEnd',    e => ...)  // {round, roundScores, totals, breakdown}
 engine.on('gameOver',    e => ...)  // {totals, winnerIndex, ranking}
+engine.on('reshuffleOffer', e => ...) // {playerIndex, remaining} — trailing player may re-deal
 ```
+
+### Trailing-player reshuffle (multiplayer)
+Before a round begins, the player with the **most points** (worst standing —
+low score wins) may force a fresh re-deal, up to `reshuffleMax` (2) times per
+round. Skipped on round 1 (everyone tied at 0) and when no one is distinctly
+trailing. Off in single-player; the server sets `rules.reshuffleEnabled = true`
+for online Black Queen and vetoes the offer for bot/disconnected seats via
+`engine.reshuffleGate`. The engine deals into the `awaitReshuffle` phase and waits
+for `reshuffleDeal()` (re-deal) or `beginPlay()` (accept). Client messages:
+`reshuffleDeal` / `reshuffleStart`; the offer rides along in each `roundStart`
+snapshot (`snapshot.reshuffle = {seat, remaining}`).
 
 ### Adding a new editable rule
 1. Add the key + default to `DEFAULT_RULES` in `config.js`.

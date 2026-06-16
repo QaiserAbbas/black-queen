@@ -1259,6 +1259,22 @@
       BQ.Sound.click();
       if (net) net.send({ t: 'resolveVacancy', choice: 'bot' });
     });
+    // Trailing player's pre-round re-deal. Hide the actions immediately so a
+    // double-tap can't fire twice; the server's next deal/turn redraws the state.
+    $('#btnReshuffleDeal') && $('#btnReshuffleDeal').addEventListener('click', () => {
+      BQ.Sound.click();
+      if (netEngine && netEngine.reshuffleDeal) {
+        netEngine.reshuffleDeal();
+        const a = $('#reshuffleActions'); if (a) a.style.display = 'none';
+      }
+    });
+    $('#btnReshuffleStart') && $('#btnReshuffleStart').addEventListener('click', () => {
+      BQ.Sound.click();
+      if (netEngine && netEngine.reshuffleStart) {
+        netEngine.reshuffleStart();
+        const a = $('#reshuffleActions'); if (a) a.style.display = 'none';
+      }
+    });
     $('#mpCode').addEventListener('keydown', (e) => { if (e.key === 'Enter') joinRoom(); });
 
     // Setup

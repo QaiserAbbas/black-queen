@@ -742,6 +742,22 @@ function handleMessage(client, msg) {
       if (client.id === room.hostId && room.engine.phase === 'awaitReshuffle') room.engine.reshuffle();
       break;
     }
+    // Black Queen: the trailing player forces a fresh deal before the round.
+    case 'reshuffleDeal': {
+      const room = rooms.get(client.roomCode);
+      if (!room || !room.engine || room.gameType === 'treeky' || room.paused) break;
+      const e = room.engine;
+      if (e.phase === 'awaitReshuffle' && e.reshuffleSeat === client.seat) e.reshuffleDeal();
+      break;
+    }
+    // Black Queen: the trailing player accepts the deal and starts the round.
+    case 'reshuffleStart': {
+      const room = rooms.get(client.roomCode);
+      if (!room || !room.engine || room.gameType === 'treeky' || room.paused) break;
+      const e = room.engine;
+      if (e.phase === 'awaitReshuffle' && e.reshuffleSeat === client.seat) e.beginPlay();
+      break;
+    }
     case 'play': {
       const room = rooms.get(client.roomCode);
       if (!room || !room.engine) return;
@@ -893,6 +909,7 @@ function startGame(room) {
   room.started = true;
   room.lastRoundEnd = null;
   room.lastGameOver = null;
+  room.rules.reshuffleEnabled = true;   // online Black Queen: trailing player may re-deal
 
   const engine = new BQ.GameEngine(room.rules);
   engine.initWithPlayers(room.seats.map((s) => s.name));
@@ -907,10 +924,20 @@ function startGame(room) {
 function wireEngine(room) {
   const e = room.engine;
 
+  // Only offer a re-deal to a live human in the seat — never a bot/disconnected
+  // player (they'd just stall the table).
+  e.reshuffleGate = (seat) => !seatIsBot(room, seat);
+
   e.on('roundStart', (ev) => {
     room.lastRoundEnd = null;
     room.seats.forEach((s) => { s.attackUsed = false; });   // fresh attack credit each round
+    // The roundStart snapshot already carries the reshuffle offer (phase is set
+    // before this fires), so clients show the prompt without an extra message.
     broadcast(room, { name: 'roundStart', leaderIndex: ev.leaderIndex });
+  });
+  // Safety net: if eligibility ever lands on a bot seat, begin play immediately.
+  e.on('reshuffleOffer', (ev) => {
+    if (seatIsBot(room, ev.playerIndex)) room.engine.beginPlay();
   });
   e.on('heartsBroken', () => broadcast(room, { name: 'heartsBroken' }));
   e.on('cardPlayed', () => { broadcast(room, { name: 'cardPlayed', punch: !!room.punchNext, smash: room.punchNext || undefined }); room.punchNext = null; });
@@ -1106,9 +1133,11 @@ function treekyBroadcast(room, hint) {
 function snapshotFor(room, seat) {
   const e = room.engine;
   const myTurn = e.phase === 'awaitHuman' && e.currentPlayerIndex === seat;
+  const reshuffling = e.phase === 'awaitReshuffle';
   return {
     you: seat,
     phase: myTurn ? 'awaitHuman' : 'playing',
+    reshuffle: reshuffling ? { seat: e.reshuffleSeat, remaining: e.reshuffleRemaining } : null,
     round: e.round,
     dealerIndex: e.dealerIndex,
     currentPlayerIndex: e.currentPlayerIndex,
@@ -1243,6 +1272,13 @@ function dropClient(client, intentional) {
       }, RECONNECT_GRACE_MS);
       broadcastLobby(room);
     }
+  }
+
+  // If the trailing player who was deciding a re-deal just dropped, don't hang
+  // the table waiting on a now-empty/bot seat — begin play with the deal as-is.
+  if (room.engine && room.engine.phase === 'awaitReshuffle' &&
+      seatIsBot(room, room.engine.reshuffleSeat)) {
+    room.engine.beginPlay();
   }
 
   // Host left? Temporarily delegate to a live human; the original reclaims it

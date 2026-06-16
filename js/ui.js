@@ -138,6 +138,7 @@
       engine.on('heartsBroken', () => this.flashHearts());
       engine.on('roundEnd', (e) => this.onRoundEnd(e));
       engine.on('gameOver', (e) => this.onGameOver(e));
+      engine.on('reshuffleOffer', (e) => this.onReshuffleOffer(e));
       engine.on('resync', () => this.resync());
 
       this.renderBadges();
@@ -149,6 +150,7 @@
       $('#roundChip').textContent = 'Round ' + (e.round || 1);
       this.closeOverlay('roundOverlay');
       this.closeOverlay('gameOverOverlay');
+      this.closeOverlay('reshuffleOverlay');   // re-opens below if an offer is still pending
       this.renderBadges();
       // opponents' face-down stacks (others' hands are length-only placeholders)
       e.players.forEach((p, i) => {
@@ -392,6 +394,7 @@
       $('#roundChip').textContent = 'Round ' + e.round;
       this.stagedId = null;                // a new deal voids any pre-selected card
       this.closeOverlay('roundOverlay');   // close last round's summary (multiplayer auto-advance)
+      this.closeOverlay('reshuffleOverlay'); // a fresh deal: a pending offer re-opens after
       this.renderBadges();
       this._clearTrick();
       this.renderHumanHand([]);     // clear first
@@ -505,8 +508,36 @@
       });
     }
 
+    /* ---- trailing player's pre-round re-deal offer ------------------------ */
+    onReshuffleOffer(e) {
+      const mine = e.seat === this.me;
+      const who = (this.engine.players[e.seat] || {}).name || 'A player';
+      const actions = $('#reshuffleActions');
+      const wait = $('#reshuffleWait');
+      const msg = $('#reshuffleMsg');
+      const dealBtn = $('#btnReshuffleDeal');
+      if (mine) {
+        if (actions) actions.style.display = '';
+        if (wait) wait.style.display = 'none';
+        if (msg) msg.textContent = "You have the most points — re-deal the hand, or start the round.";
+        const left = $('#reshuffleLeft');
+        if (left) left.textContent = e.remaining;
+        if (dealBtn) dealBtn.disabled = e.remaining <= 0;
+      } else {
+        if (actions) actions.style.display = 'none';
+        if (wait) {
+          wait.style.display = '';
+          const nm = $('#reshuffleWaitName');
+          if (nm) nm.textContent = who;
+        }
+        if (msg) msg.textContent = who + ' has the most points and may re-deal the hand.';
+      }
+      this.openOverlay('reshuffleOverlay');
+    }
+
     /* ---- turn handling ---------------------------------------------------- */
     onTurn(e) {
+      this.closeOverlay('reshuffleOverlay'); // play has begun — any offer is settled
       this.activeIndex = e.playerIndex;
       this.legalSet = new Set(e.legalCardIds);
       // highlight active badge

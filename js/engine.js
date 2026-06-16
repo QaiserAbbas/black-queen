@@ -52,6 +52,9 @@
       this._resolveHumanPlay = null; // promise hook for human input
       this._lastRoundEnd = null;     // last round-summary payload (for refresh-resume)
       this._lastGameOver = null;     // last game-over payload (for refresh-resume)
+      this.reshuffleRemaining = 0;   // trailing-player re-deals left THIS round
+      this.reshuffleSeat = -1;       // seat currently offered a re-deal (-1 = none)
+      this.reshuffleGate = null;     // optional veto(seat)->bool (server: skip bots)
     }
 
     /* ---- tiny event bus --------------------------------------------------- */
@@ -135,14 +138,16 @@
       this._lastRoundEnd = null;  // a new round started — the old summary is stale
 
       // Build + shuffle + deal.
-      const deck = BQ.shuffle(BQ.buildDeck());
-      const hands = BQ.deal(deck, this.players.length);
-      this.players.forEach((p, i) => {
-        p.hand = hands[i];
-        p.tricksWon = 0;
-      });
+      this._dealHands();
 
-      this._setPhase('playing');
+      // The trailing player (most points) may force a re-deal before play —
+      // up to reshuffleMax times. Decide eligibility BEFORE emitting roundStart
+      // so the snapshot already carries the correct phase.
+      this.reshuffleRemaining = this.rules.reshuffleEnabled ? (this.rules.reshuffleMax || 2) : 0;
+      const seat = this._reshuffleEligibleSeat();
+      this.reshuffleSeat = seat;
+      this._setPhase(seat >= 0 ? 'awaitReshuffle' : 'playing');
+
       this.emit('roundStart', {
         round: this.round,
         dealerIndex: this.dealerIndex,
@@ -150,7 +155,74 @@
         hands: this.players.map((p) => p.hand),
       });
 
+      if (seat >= 0) this.emit('reshuffleOffer', { playerIndex: seat, remaining: this.reshuffleRemaining });
+      else this._beginTurn();
+    }
+
+    // Shuffle a fresh 52-card deck and deal it to every seat (resets trick count).
+    _dealHands() {
+      const deck = BQ.shuffle(BQ.buildDeck());
+      const hands = BQ.deal(deck, this.players.length);
+      this.players.forEach((p, i) => {
+        p.hand = hands[i];
+        p.tricksWon = 0;
+      });
+    }
+
+    // Which seat may force a re-deal right now? The player with the MOST points
+    // (worst standing — LOW wins); ties broken by lowest seat index. Returns -1
+    // when reshuffles are off/used up, on round 1, when everyone is tied (no sole
+    // trailer), or when the server vetoes the seat (a bot / disconnected player).
+    _reshuffleEligibleSeat() {
+      const r = this.rules;
+      if (!r.reshuffleEnabled || this.reshuffleRemaining <= 0) return -1;
+      if (this.round < 2) return -1;                 // round 1: everyone at 0
+      let top = 0;
+      for (let i = 1; i < this.players.length; i++) {
+        if (this.players[i].totalScore > this.players[top].totalScore) top = i;
+      }
+      const topScore = this.players[top].totalScore;
+      if (this.players.every((p) => p.totalScore === topScore)) return -1; // all tied
+      if (this.reshuffleGate && !this.reshuffleGate(top)) return -1;
+      return top;
+    }
+
+    // The trailing player requests another deal. Re-deals the SAME round (round
+    // number, dealer and leader unchanged), spends one reshuffle, then re-offers
+    // (or begins play once none remain).
+    reshuffleDeal() {
+      if (this.phase !== 'awaitReshuffle' || this.reshuffleRemaining <= 0) return false;
+      this.reshuffleRemaining -= 1;
+      this._dealHands();
+      this.heartsBroken = false;
+      this.currentTrick = [];
+      this.leadSuit = null;
+      this.trickLog = [];
+
+      const seat = this._reshuffleEligibleSeat();    // scores unchanged -> same seat, or -1 once spent
+      this.reshuffleSeat = seat;
+      this._setPhase(seat >= 0 ? 'awaitReshuffle' : 'playing');
+
+      this.emit('roundStart', {
+        round: this.round,
+        dealerIndex: this.dealerIndex,
+        leaderIndex: this.trickLeaderIndex,
+        hands: this.players.map((p) => p.hand),
+        reshuffled: true,
+      });
+
+      if (seat >= 0) this.emit('reshuffleOffer', { playerIndex: seat, remaining: this.reshuffleRemaining });
+      else this._beginTurn();
+      return true;
+    }
+
+    // The trailing player accepts the deal (or declines to reshuffle) — start play.
+    beginPlay() {
+      if (this.phase !== 'awaitReshuffle') return false;
+      this.reshuffleSeat = -1;
+      this._setPhase('playing');
       this._beginTurn();
+      return true;
     }
 
     /* ---- legal-move computation ------------------------------------------ */

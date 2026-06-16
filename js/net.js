@@ -137,6 +137,10 @@
     // table sees it. punch keeps older servers/clients working.
     playHuman(cardId, smash) { this.client.send({ t: 'play', cardId, punch: !!smash, smash: smash || undefined }); return true; }
 
+    // Trailing-player re-deal controls (before a round begins).
+    reshuffleDeal() { this.client.send({ t: 'reshuffleDeal' }); return true; }
+    reshuffleStart() { this.client.send({ t: 'reshuffleStart' }); return true; }
+
     get human() { return this.players[this.me]; }
 
     // Rebuild local mirror state from a server snapshot (no events emitted).
@@ -150,6 +154,7 @@
       this.heartsBroken = s.heartsBroken;
       this.rules = s.rules;
       this.trickLog = s.trickLog || [];
+      this.reshuffle = s.reshuffle || null;   // {seat, remaining} while a re-deal is offered
 
       this.players = s.players.map((p) => {
         const obj = {
@@ -183,7 +188,13 @@
             round: s.round, dealerIndex: s.dealerIndex, leaderIndex: hint.leaderIndex,
             hands: this.players.map((p) => p.hand),
           });
-          this.emit('turn', { playerIndex: s.currentPlayerIndex, legalCardIds: s.legalCardIds });
+          // A re-deal is on offer (trailing player decides) — show the prompt
+          // instead of starting a turn; play begins once they accept.
+          if (s.reshuffle) {
+            this.emit('reshuffleOffer', { seat: s.reshuffle.seat, remaining: s.reshuffle.remaining, me: this.me });
+          } else {
+            this.emit('turn', { playerIndex: s.currentPlayerIndex, legalCardIds: s.legalCardIds });
+          }
           break;
         case 'turn':
           this.emit('turn', { playerIndex: s.currentPlayerIndex, legalCardIds: s.legalCardIds });
@@ -227,7 +238,11 @@
           // A reconnecting player: rebuild the whole table from the snapshot,
           // then restore the active-turn highlight + playable cards.
           this.emit('resync', { phase: s.phase });
-          this.emit('turn', { playerIndex: s.currentPlayerIndex, legalCardIds: s.legalCardIds });
+          if (s.reshuffle) {
+            this.emit('reshuffleOffer', { seat: s.reshuffle.seat, remaining: s.reshuffle.remaining, me: this.me });
+          } else {
+            this.emit('turn', { playerIndex: s.currentPlayerIndex, legalCardIds: s.legalCardIds });
+          }
           break;
         case 'sync':
         default:
