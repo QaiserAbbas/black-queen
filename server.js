@@ -747,7 +747,7 @@ function handleMessage(client, msg) {
       const room = rooms.get(client.roomCode);
       if (!room || !room.engine || room.gameType === 'treeky' || room.paused) break;
       const e = room.engine;
-      if (e.phase === 'awaitReshuffle' && e.reshuffleSeat === client.seat) e.reshuffleDeal();
+      if (e.phase === 'awaitReshuffle' && e.reshuffleSeat === client.seat) e.reshuffleAgain();
       break;
     }
     // Black Queen: the trailing player accepts the deal and starts the round.
@@ -931,13 +931,13 @@ function wireEngine(room) {
   e.on('roundStart', (ev) => {
     room.lastRoundEnd = null;
     room.seats.forEach((s) => { s.attackUsed = false; });   // fresh attack credit each round
-    // The roundStart snapshot already carries the reshuffle offer (phase is set
-    // before this fires), so clients show the prompt without an extra message.
     broadcast(room, { name: 'roundStart', leaderIndex: ev.leaderIndex });
   });
-  // Safety net: if eligibility ever lands on a bot seat, begin play immediately.
+  // The reshuffle decision happens BEFORE the deal: announce the offer (no cards
+  // dealt yet). A bot/disconnected trailing seat can't decide, so just play on.
   e.on('reshuffleOffer', (ev) => {
-    if (seatIsBot(room, ev.playerIndex)) room.engine.beginPlay();
+    if (seatIsBot(room, ev.playerIndex)) { room.engine.beginPlay(); return; }
+    broadcast(room, { name: 'reshuffleOffer', seat: ev.playerIndex, remaining: ev.remaining });
   });
   e.on('heartsBroken', () => broadcast(room, { name: 'heartsBroken' }));
   e.on('cardPlayed', () => { broadcast(room, { name: 'cardPlayed', punch: !!room.punchNext, smash: room.punchNext || undefined }); room.punchNext = null; });

@@ -188,13 +188,11 @@
             round: s.round, dealerIndex: s.dealerIndex, leaderIndex: hint.leaderIndex,
             hands: this.players.map((p) => p.hand),
           });
-          // A re-deal is on offer (trailing player decides) — show the prompt
-          // instead of starting a turn; play begins once they accept.
-          if (s.reshuffle) {
-            this.emit('reshuffleOffer', { seat: s.reshuffle.seat, remaining: s.reshuffle.remaining, me: this.me });
-          } else {
-            this.emit('turn', { playerIndex: s.currentPlayerIndex, legalCardIds: s.legalCardIds });
-          }
+          this.emit('turn', { playerIndex: s.currentPlayerIndex, legalCardIds: s.legalCardIds });
+          break;
+        // Trailing player decides on a reshuffle BEFORE cards are dealt.
+        case 'reshuffleOffer':
+          this.emit('reshuffleOffer', { seat: hint.seat, remaining: hint.remaining, me: this.me });
           break;
         case 'turn':
           this.emit('turn', { playerIndex: s.currentPlayerIndex, legalCardIds: s.legalCardIds });

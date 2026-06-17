@@ -137,41 +137,44 @@
       this.trickLog = [];   // hand-by-hand record for THIS round (the scorecard)
       this._lastRoundEnd = null;  // a new round started — the old summary is stale
 
-      // Build + shuffle + deal.
-      this._dealHands();
-
-      // The trailing player (most points) may force a re-deal before play —
-      // up to reshuffleMax times. Decide eligibility BEFORE emitting roundStart
-      // so the snapshot already carries the correct phase.
+      // Shuffle a fresh deck — but DON'T deal yet. The trailing player (most
+      // points) decides on a reshuffle FIRST, before any cards are distributed,
+      // so the choice is blind. Up to reshuffleMax extra shuffles per round.
+      this._deck = BQ.shuffle(BQ.buildDeck());
       this.reshuffleRemaining = this.rules.reshuffleEnabled ? (this.rules.reshuffleMax || 2) : 0;
+
       const seat = this._reshuffleEligibleSeat();
       this.reshuffleSeat = seat;
-      this._setPhase(seat >= 0 ? 'awaitReshuffle' : 'playing');
+      if (seat >= 0) {
+        this._setPhase('awaitReshuffle');
+        this.emit('reshuffleOffer', { playerIndex: seat, remaining: this.reshuffleRemaining });
+      } else {
+        this._dealAndPlay();
+      }
+    }
 
+    // Deal the (already-shuffled) deck to every seat, then begin play. Called
+    // once the reshuffle decision is settled (or immediately when not offered).
+    _dealAndPlay() {
+      const hands = BQ.deal(this._deck, this.players.length);
+      this.players.forEach((p, i) => {
+        p.hand = hands[i];
+        p.tricksWon = 0;
+      });
+      this.reshuffleSeat = -1;
+      this._setPhase('playing');
       this.emit('roundStart', {
         round: this.round,
         dealerIndex: this.dealerIndex,
         leaderIndex: this.trickLeaderIndex,
         hands: this.players.map((p) => p.hand),
       });
-
-      if (seat >= 0) this.emit('reshuffleOffer', { playerIndex: seat, remaining: this.reshuffleRemaining });
-      else this._beginTurn();
+      this._beginTurn();
     }
 
-    // Shuffle a fresh 52-card deck and deal it to every seat (resets trick count).
-    _dealHands() {
-      const deck = BQ.shuffle(BQ.buildDeck());
-      const hands = BQ.deal(deck, this.players.length);
-      this.players.forEach((p, i) => {
-        p.hand = hands[i];
-        p.tricksWon = 0;
-      });
-    }
-
-    // Which seat may force a re-deal right now? The player with the MOST points
-    // (worst standing — LOW wins); ties broken by lowest seat index. Returns -1
-    // when reshuffles are off/used up, on round 1, when everyone is tied (no sole
+    // Which seat may reshuffle right now? The player with the MOST points (worst
+    // standing — LOW wins); ties broken by lowest seat index. Returns -1 when
+    // reshuffles are off/used up, on round 1, when everyone is tied (no sole
     // trailer), or when the server vetoes the seat (a bot / disconnected player).
     _reshuffleEligibleSeat() {
       const r = this.rules;
@@ -187,41 +190,24 @@
       return top;
     }
 
-    // The trailing player requests another deal. Re-deals the SAME round (round
-    // number, dealer and leader unchanged), spends one reshuffle, then re-offers
-    // (or begins play once none remain).
-    reshuffleDeal() {
+    // The trailing player asks to shuffle the (undealt) deck once more. Spends
+    // one reshuffle, then re-offers — or deals + begins play once none remain.
+    reshuffleAgain() {
       if (this.phase !== 'awaitReshuffle' || this.reshuffleRemaining <= 0) return false;
       this.reshuffleRemaining -= 1;
-      this._dealHands();
-      this.heartsBroken = false;
-      this.currentTrick = [];
-      this.leadSuit = null;
-      this.trickLog = [];
+      this._deck = BQ.shuffle(this._deck);
 
       const seat = this._reshuffleEligibleSeat();    // scores unchanged -> same seat, or -1 once spent
       this.reshuffleSeat = seat;
-      this._setPhase(seat >= 0 ? 'awaitReshuffle' : 'playing');
-
-      this.emit('roundStart', {
-        round: this.round,
-        dealerIndex: this.dealerIndex,
-        leaderIndex: this.trickLeaderIndex,
-        hands: this.players.map((p) => p.hand),
-        reshuffled: true,
-      });
-
       if (seat >= 0) this.emit('reshuffleOffer', { playerIndex: seat, remaining: this.reshuffleRemaining });
-      else this._beginTurn();
+      else this._dealAndPlay();
       return true;
     }
 
-    // The trailing player accepts the deal (or declines to reshuffle) — start play.
+    // The trailing player accepts the deck (declines to reshuffle) — deal + play.
     beginPlay() {
       if (this.phase !== 'awaitReshuffle') return false;
-      this.reshuffleSeat = -1;
-      this._setPhase('playing');
-      this._beginTurn();
+      this._dealAndPlay();
       return true;
     }
 

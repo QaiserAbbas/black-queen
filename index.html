@@ -395,16 +395,16 @@
       </div>
     </div>
 
-    <!-- Trailing player (most points) may re-deal before the round begins -->
+    <!-- Trailing player (most points) may reshuffle the deck BEFORE the deal -->
     <div class="overlay" id="reshuffleOverlay">
       <div class="modal">
-        <h2>🔀 Reshuffle the deal?</h2>
-        <p id="reshuffleMsg" style="color:#cfe6d6;margin:0.6rem 0 1rem">You have the most points — re-deal the hand, or start the round.</p>
+        <h2>🔀 Reshuffle before the deal?</h2>
+        <p id="reshuffleMsg" style="color:#cfe6d6;margin:0.6rem 0 1rem">You have the most points — reshuffle the deck before the deal, or deal now.</p>
         <div class="close-row" id="reshuffleActions">
           <button class="btn small" id="btnReshuffleDeal">Reshuffle (<span id="reshuffleLeft">2</span> left)</button>
-          <button class="btn ghost small" id="btnReshuffleStart">Start the round</button>
+          <button class="btn ghost small" id="btnReshuffleStart">Deal now</button>
         </div>
-        <p id="reshuffleWait" style="display:none;color:#bfe0c9;margin:0.6rem 0 0">Waiting for <span id="reshuffleWaitName">a player</span> to decide whether to re-deal…</p>
+        <p id="reshuffleWait" style="display:none;color:#bfe0c9;margin:0.6rem 0 0">Waiting for <span id="reshuffleWaitName">a player</span> to decide whether to reshuffle…</p>
       </div>
     </div>
 

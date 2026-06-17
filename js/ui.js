@@ -508,8 +508,9 @@
       });
     }
 
-    /* ---- trailing player's pre-round re-deal offer ------------------------ */
+    /* ---- trailing player's pre-deal reshuffle offer ----------------------- */
     onReshuffleOffer(e) {
+      this.closeOverlay('roundOverlay');   // came straight off the round summary
       const mine = e.seat === this.me;
       const who = (this.engine.players[e.seat] || {}).name || 'A player';
       const actions = $('#reshuffleActions');
@@ -519,7 +520,7 @@
       if (mine) {
         if (actions) actions.style.display = '';
         if (wait) wait.style.display = 'none';
-        if (msg) msg.textContent = "You have the most points — re-deal the hand, or start the round.";
+        if (msg) msg.textContent = "You have the most points — reshuffle the deck before the deal, or deal now.";
         const left = $('#reshuffleLeft');
         if (left) left.textContent = e.remaining;
         if (dealBtn) dealBtn.disabled = e.remaining <= 0;
@@ -530,7 +531,7 @@
           const nm = $('#reshuffleWaitName');
           if (nm) nm.textContent = who;
         }
-        if (msg) msg.textContent = who + ' has the most points and may re-deal the hand.';
+        if (msg) msg.textContent = who + ' has the most points and may reshuffle the deck before the deal.';
       }
       this.openOverlay('reshuffleOverlay');
     }

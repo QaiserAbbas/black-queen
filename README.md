@@ -222,15 +222,19 @@ engine.on('reshuffleOffer', e => ...) // {playerIndex, remaining} — trailing p
 ```
 
 ### Trailing-player reshuffle (multiplayer)
-Before a round begins, the player with the **most points** (worst standing —
-low score wins) may force a fresh re-deal, up to `reshuffleMax` (2) times per
-round. Skipped on round 1 (everyone tied at 0) and when no one is distinctly
-trailing. Off in single-player; the server sets `rules.reshuffleEnabled = true`
-for online Black Queen and vetoes the offer for bot/disconnected seats via
-`engine.reshuffleGate`. The engine deals into the `awaitReshuffle` phase and waits
-for `reshuffleDeal()` (re-deal) or `beginPlay()` (accept). Client messages:
-`reshuffleDeal` / `reshuffleStart`; the offer rides along in each `roundStart`
-snapshot (`snapshot.reshuffle = {seat, remaining}`).
+Before a round's cards are dealt, the player with the **most points** (worst
+standing — low score wins) may reshuffle the deck, up to `reshuffleMax` (2) times
+per round. The choice is **blind** — it happens before any hand is distributed.
+Skipped on round 1 (everyone tied at 0) and when no one is distinctly trailing.
+Off in single-player; the server sets `rules.reshuffleEnabled = true` for online
+Black Queen and vetoes the offer for bot/disconnected seats via
+`engine.reshuffleGate`. The engine shuffles a deck, enters the `awaitReshuffle`
+phase (no deal yet), and emits `reshuffleOffer`; it then waits for
+`reshuffleAgain()` (shuffle once more) or `beginPlay()` (deal + start). Only on
+`beginPlay`/exhausted does it deal and emit `roundStart`. Client messages:
+`reshuffleDeal` (shuffle again) / `reshuffleStart` (deal now); the offer is
+broadcast as its own `reshuffleOffer` message and also rides in the snapshot
+(`snapshot.reshuffle = {seat, remaining}`) for reconnects.
 
 ### Adding a new editable rule
 1. Add the key + default to `DEFAULT_RULES` in `config.js`.
