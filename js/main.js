@@ -426,11 +426,14 @@
       .catch((err) => { setMpStatus(serverHelp(err), 'bad'); setControlsEnabled(true); });
   }
 
-  function ensureConnected() {
-    if (net && net.connected) return Promise.resolve();
+  // Open (or reuse) a socket bound to a specific room code. On PartyKit the room
+  // code lives in the connection URL, so every flow must know its code up front
+  // (create asks the lobby for a fresh one; join/spectate/resume already have it).
+  function connectTo(code) {
+    if (net && net.connected && net.roomId === code) return Promise.resolve();
     net = new BQ.NetClient();
     wireNet();
-    return net.connect();
+    return net.connect(code, 'main');
   }
 
   // Re-open the socket and reclaim our seat, backing off on repeated failure.
@@ -440,9 +443,7 @@
     reconnectAttempts++;
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null;
-      net = new BQ.NetClient();
-      wireNet();
-      net.connect()
+      connectTo(session.code)
         .then(() => net.send({ t: 'resume', code: session.code, token: session.token }))
         .catch(() => scheduleReconnect());
     }, delay);
@@ -455,7 +456,7 @@
         (location.protocol === 'http:' || location.protocol === 'https:')) {
       myName = session.name || 'Player';
       ui.setReconnecting(true);
-      ensureConnected()
+      connectTo(session.code)
         .then(() => net.send({ t: 'resume', code: session.code, token: session.token }))
         .catch(() => { ui.setReconnecting(false); resumeSingleGame(); });
       return;
@@ -616,35 +617,48 @@
     myName = ($('#mpName').value || '').trim() || 'Host';
     $('#mpError').textContent = '';
     setMpStatus('Creating room…', '');
-    ensureConnected().then(() => {
-      setMpStatus('✓ Connected.', 'ok');
-      net.send({ t: 'create', name: myName, gameType: selectedGame,
-        treekyRules: selectedGame === 'treeky'
-          ? { handSize: treekyRules.handSize, botThinkMs: treekyRules.botThinkMs, decks: treekyRules.decks, playDirection: treekyRules.playDirection }
-          : undefined });
-    }).catch((err) => { setMpStatus(serverHelp(err), 'bad'); });
+    // The lobby allocates a fresh, unused code; we then open the room at it.
+    BQ.NetClient.lobby('create').then((res) => {
+      if (!res || !res.code) { setMpStatus('Could not reach the lobby. Try again.', 'bad'); return; }
+      connectTo(res.code).then(() => {
+        setMpStatus('✓ Connected.', 'ok');
+        net.send({ t: 'create', name: myName, gameType: selectedGame,
+          treekyRules: selectedGame === 'treeky'
+            ? { handSize: treekyRules.handSize, botThinkMs: treekyRules.botThinkMs, decks: treekyRules.decks, playDirection: treekyRules.playDirection }
+            : undefined });
+      }).catch((err) => { setMpStatus(serverHelp(err), 'bad'); });
+    });
   }
 
   function joinRoom() {
     myName = ($('#mpName').value || '').trim() || 'Player';
-    const code = ($('#mpCode').value || '').trim().toUpperCase();
+    const typed = ($('#mpCode').value || '').trim().toUpperCase();
     $('#mpError').textContent = '';
-    setMpStatus(code ? 'Joining room ' + code + '…' : 'Looking for an open game…', '');
-    ensureConnected().then(() => {
-      net.send({ t: 'join', code, name: myName });
-    }).catch((err) => { setMpStatus(serverHelp(err), 'bad'); });
+    setMpStatus(typed ? 'Joining room ' + typed + '…' : 'Looking for an open game…', '');
+    // Blank code → ask the lobby for any open room.
+    const resolve = typed ? Promise.resolve({ code: typed }) : BQ.NetClient.lobby('join');
+    resolve.then((res) => {
+      if (!res || !res.code) { setMpStatus('No open rooms yet. Ask the host to create one first.', 'bad'); return; }
+      connectTo(res.code)
+        .then(() => net.send({ t: 'join', code: res.code, name: myName }))
+        .catch((err) => { setMpStatus(serverHelp(err), 'bad'); });
+    });
   }
 
   // Watch a live game as a spectator: no seat is taken and no hand is ever
-  // revealed. Blank code joins the only live game.
+  // revealed. Blank code watches the only live game.
   function watchRoom() {
     myName = ($('#mpName').value || '').trim() || 'Spectator';
-    const code = ($('#mpCode').value || '').trim().toUpperCase();
+    const typed = ($('#mpCode').value || '').trim().toUpperCase();
     $('#mpError').textContent = '';
-    setMpStatus(code ? 'Joining stream ' + code + '…' : 'Looking for a live game…', '');
-    ensureConnected().then(() => {
-      net.send({ t: 'spectate', code, name: myName });
-    }).catch((err) => { setMpStatus(serverHelp(err), 'bad'); });
+    setMpStatus(typed ? 'Joining stream ' + typed + '…' : 'Looking for a live game…', '');
+    const resolve = typed ? Promise.resolve({ code: typed }) : BQ.NetClient.lobby('spectate');
+    resolve.then((res) => {
+      if (!res || !res.code) { setMpStatus('No live game to watch yet. Ask the host to start one.', 'bad'); return; }
+      connectTo(res.code)
+        .then(() => net.send({ t: 'spectate', code: res.code, name: myName }))
+        .catch((err) => { setMpStatus(serverHelp(err), 'bad'); });
+    });
   }
 
   function renderLobby(state) {

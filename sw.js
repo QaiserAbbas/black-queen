@@ -6,13 +6,14 @@
  *   • App shell (html / css / js)    → network-first, cached copy as fallback,
  *     so a deploy is picked up on the next load but the game still opens with
  *     no connection.
- * WebSocket traffic (/ws) is not interceptable by service workers — multiplayer
- * is untouched by this file.
+ * Multiplayer lives under /parties/ (PartyKit): WebSocket upgrades aren't visible
+ * to a service worker, and the lobby's HTTP calls must always hit the network —
+ * so this file explicitly bypasses anything under /parties/.
  * ===========================================================================*/
 
 'use strict';
 
-const CACHE = 'bq-v6';
+const CACHE = 'bq-v7';
 const CORE = [
   '/',
   '/index.html',
@@ -50,6 +51,10 @@ self.addEventListener('activate', (e) => {
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET' || url.origin !== location.origin) return;
+
+  // Multiplayer (PartyKit): never intercept or cache — lobby lookups must be
+  // live, and WebSocket upgrades must reach the network untouched.
+  if (url.pathname.startsWith('/parties/')) return;
 
   if ((url.pathname.startsWith('/cards/') || url.pathname.startsWith('/sounds/')) &&
       !url.pathname.endsWith('manifest.json')) {

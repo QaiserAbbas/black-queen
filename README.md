@@ -34,13 +34,26 @@ open index.html          # macOS
 
 If your browser blocks audio/JS from `file://`, serve it: `python3 -m http.server 8765`.
 
-**Multiplayer on your LAN** — run the included zero-dependency Node server:
+**Multiplayer (recommended) — PartyKit / Cloudflare.** The multiplayer server
+now also runs on Cloudflare's edge (Durable Objects) so it can be hosted for
+free with no VM. Local dev mirrors production:
 
 ```
-node server.js            # default port 3000  (node server.js 8080 to change)
+npm install              # one-time: pulls the partykit dev tool
+npm run dev              # serves the game + multiplayer on http://localhost:1999
 ```
 
-It prints a URL like `http://192.168.0.166:3000`. Everyone on the same
+Everyone on your Wi-Fi opens `http://<your-LAN-ip>:1999`. The classic
+zero-dependency `node server.js` (below) still works for pure-LAN play, but
+PartyKit is the path that also deploys to the cloud — see *Hosting it online*.
+
+**Multiplayer on your LAN (legacy, zero-dependency)** — the original Node server:
+
+```
+node server.js            # default port 4003  (node server.js 8080 to change)
+```
+
+It prints a URL like `http://192.168.0.166:4003`. Everyone on the same
 Wi-Fi/network opens that URL in a browser, picks **Multiplayer (LAN)**, and:
 
 1. One player taps **Create Room** → gets a 4-letter code (e.g. `BWNB`).
@@ -71,18 +84,38 @@ into the exact same seat (their session token is kept for 90 s).
 
 ### Hosting it online (play across the internet)
 
-The repo ships with `render.yaml` — push to GitHub, then on
-[Render](https://render.com): *New → Blueprint → pick the repo*. One service
-serves the site **and** the WebSocket.
+**Recommended — Cloudflare / PartyKit (free, no VM).** The static game **and**
+the multiplayer server deploy together to Cloudflare's edge:
 
-- **Free tier sleeps after ~15 min idle** — the first visitor waits 30–50 s and
-  it can feel "stuck". For real games use the **Starter** plan (always-on), or
-  [Railway](https://railway.app) / [Fly.io](https://fly.io) — both run a plain
-  Node server with WebSockets always-on for a few dollars a month.
+```
+npx partykit deploy       # first run opens a browser to log in (free account)
+```
+
+It prints a URL like `https://black-queen.<you>.partykit.dev` — share it. Free
+tier is generous (a card game is tiny) and there is nothing to keep "always on".
+
+How it maps (see `party/`):
+- **`party/main.js`** — one Durable Object **per room** (the room code is the URL
+  id), running the authoritative engine. Replaces the old single-process
+  `rooms`/`clients` Maps; bots and grace timers use `setTimeout` while the room
+  is warm (≥1 player connected).
+- **`party/lobby.js`** — one shared registry that allocates unused room codes and
+  answers blank-code *join* / *watch the only live game*.
+- **`partykit.json`** — serves the repo as static assets and routes `/parties/…`.
+- ⚠️ Known limit: if **every** player disconnects at once, the in-progress game
+  may not survive the 90 s reconnect window (engine state isn't persisted to
+  storage yet). A single player dropping while others stay connected reconnects
+  fine. Persisting engine state to DO storage is a follow-up.
+
+**Alternative — Render / Railway / Fly (the legacy Node server).** The repo still
+ships `render.yaml`: push to GitHub, then on [Render](https://render.com): *New →
+Blueprint → pick the repo*. One service serves the site **and** the WebSocket.
+
+- **Free tier sleeps after ~15 min idle** — first visitor waits 30–50 s. For real
+  games use the **Starter** plan (always-on), or [Railway](https://railway.app) /
+  [Fly.io](https://fly.io).
 - Rooms live in memory: keep it at **one instance** (no autoscaling).
-- ngrok works for a quick session (`ngrok http 3000`), but tunnels add latency
-  and free tunnels drop idle connections — the built-in heartbeat + auto-resume
-  now survives that, but a real host is smoother.
+- ngrok works for a quick session (`ngrok http 4003`), but tunnels add latency.
 
 ### Desktop & mobile app
 

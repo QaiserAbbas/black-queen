@@ -23,6 +23,7 @@
   class NetClient {
     constructor() {
       this.ws = null;
+      this.roomId = null;        // which room code this socket is bound to
       this.handlers = {};
       this.connected = false;
       this.latencyMs = null;     // last measured round-trip, for the status pill
@@ -61,15 +62,22 @@
         this._visHandler = null;
       }
     }
-    connect() {
+    // Open a socket to a specific room. On PartyKit the room code lives in the
+    // URL (/parties/<party>/<roomId>) — one object per room — so a code is
+    // required. `party` defaults to the "main" room party (the game); the lobby
+    // registry is reached over HTTP, see NetClient.lobby().
+    connect(roomId, party) {
       return new Promise((resolve, reject) => {
-        // Multiplayer requires the Node server. file:// (or any non-http origin)
-        // can't open a WebSocket at all — fail clearly instead of hanging.
+        // Multiplayer requires being served over http(s). file:// (or any other
+        // origin) can't open a WebSocket at all — fail clearly instead of hanging.
         if (location.protocol !== 'http:' && location.protocol !== 'https:') {
           const err = new Error('not-served'); err.code = 'not-served'; return reject(err);
         }
+        if (!roomId) { const err = new Error('no-room'); err.code = 'no-room'; return reject(err); }
+        this.roomId = String(roomId);
         const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-        const url = proto + '://' + location.host + '/ws';
+        const url = proto + '://' + location.host + '/parties/' + (party || 'main') + '/' +
+          encodeURIComponent(this.roomId);
         let settled = false;
         let ws;
         try { ws = this.ws = new WebSocket(url); }
@@ -112,6 +120,15 @@
     emit(t, payload) { (this.handlers[t] || []).forEach((fn) => fn(payload)); }
     send(obj) { if (this.ws && this.connected) this.ws.send(JSON.stringify(obj)); }
   }
+
+  // Ask the lobby registry (a single shared party reached over HTTP) for a room
+  // code. `need` is 'create' (reserve a fresh unused code), 'join' (find an open
+  // room), or 'spectate' (find a live game). Resolves to { code } or null.
+  NetClient.lobby = function (need) {
+    return fetch('/parties/lobby/lobby?need=' + encodeURIComponent(need))
+      .then((r) => (r.ok ? r.json() : null))
+      .catch(() => null);
+  };
 
   /* ---- NetworkEngine: a read-only mirror the UI can render ---------------- */
   class NetworkEngine {

@@ -4,6 +4,8 @@
   "description": "Black Queen — a trick-taking card game with single-player and LAN/online multiplayer. Zero dependencies.",
   "main": "server.js",
   "scripts": {
+    "dev": "partykit dev",
+    "deploy": "partykit deploy",
     "start": "node server.js",
     "tunnel": "cloudflared tunnel --url http://localhost:4003",
     "share": "node server.js & SRV=$!; trap 'kill $SRV' EXIT; sleep 1; cloudflared tunnel --url http://localhost:4003"
@@ -12,5 +14,8 @@
     "node": ">=14"
   },
   "license": "MIT",
-  "packageManager": "pnpm@10.11.0+sha512.6540583f41cc5f628eb3d9773ecee802f4f9ef9923cc45b69890fb47991d4b092964694ec3a4f738a420c918a333062c8b925d312f42e4f0c263eb603551f977"
+  "packageManager": "pnpm@10.11.0+sha512.6540583f41cc5f628eb3d9773ecee802f4f9ef9923cc45b69890fb47991d4b092964694ec3a4f738a420c918a333062c8b925d312f42e4f0c263eb603551f977",
+  "devDependencies": {
+    "partykit": "^0.0.115"
+  }
 }
