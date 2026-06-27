@@ -13,7 +13,7 @@
 
 'use strict';
 
-const CACHE = 'bq-v8';
+const CACHE = 'bq-v11';
 const CORE = [
   '/',
   '/index.html',

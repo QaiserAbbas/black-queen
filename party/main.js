@@ -115,12 +115,14 @@ export class Main extends Server {
     ).bind(this.gameDbId, this.name, this.gameType, Date.now()).run().catch(() => {});
   }
 
-  recordRound(roundNo, scores, totals) {
+  recordRound(roundNo, scores, totals, breakdown) {
     if (!this.gameDbId || !this.env.DB) return;
     this.env.DB.prepare(
-      `INSERT OR REPLACE INTO rounds (game_id, round_no, scores, totals, created_at) VALUES (?, ?, ?, ?, ?)`
-    ).bind(this.gameDbId, roundNo, JSON.stringify(scores || []), JSON.stringify(totals || []), Date.now())
-     .run().catch(() => {});
+      `INSERT OR REPLACE INTO rounds (game_id, round_no, scores, totals, breakdown, created_at) VALUES (?, ?, ?, ?, ?, ?)`
+    ).bind(
+      this.gameDbId, roundNo, JSON.stringify(scores || []), JSON.stringify(totals || []),
+      JSON.stringify(breakdown || []), Date.now()
+    ).run().catch(() => {});
   }
 
   // Finalize a finished game: stamp the winner + write one game_players row per
@@ -755,7 +757,7 @@ export class Main extends Server {
     e.on("roundEnd", (ev) => {
       this.lastRoundEnd = { round: ev.round, roundScores: ev.roundScores, totals: ev.totals, breakdown: ev.breakdown, tricks: ev.tricks, cutShort: !!ev.cutShort, gameOver: !!ev.gameOver };
       this.broadcast(Object.assign({ name: "roundEnd" }, this.lastRoundEnd));
-      this.recordRound(ev.round, ev.roundScores, ev.totals);
+      this.recordRound(ev.round, ev.roundScores, ev.totals, ev.breakdown);
       this.ready = new Set();
       if (e.phase !== "gameOver") this.broadcastReady();
     });

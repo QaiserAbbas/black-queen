@@ -263,7 +263,7 @@ async function gameDetail(request, env, gameId) {
     `SELECT seat, user_id, name, is_bot, final_score, rank FROM game_players WHERE game_id = ? ORDER BY seat`
   ).bind(gameId).all()).results || [];
   const rounds = (await env.DB.prepare(
-    `SELECT round_no, scores, totals FROM rounds WHERE game_id = ? ORDER BY round_no`
+    `SELECT round_no, scores, totals, breakdown FROM rounds WHERE game_id = ? ORDER BY round_no`
   ).bind(gameId).all()).results || [];
 
   return json({
@@ -279,6 +279,7 @@ async function gameDetail(request, env, gameId) {
       roundNo: r.round_no,
       scores: safeParse(r.scores),
       totals: safeParse(r.totals),
+      breakdown: safeParse(r.breakdown),
     })),
   });
 }

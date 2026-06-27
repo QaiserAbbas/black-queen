@@ -133,7 +133,7 @@
       const r = await api('/history');
       if (!r.ok) { list.innerHTML = '<p class="muted">Could not load history.</p>'; return; }
       const games = r.body.games || [];
-      if (!games.length) { list.innerHTML = '<p class="muted">No finished games yet — play one!</p>'; return; }
+      if (!games.length) { list.innerHTML = '<p class="muted">No finished games yet. Play one to see it here.</p>'; return; }
       list.innerHTML = games.map((g) => {
         const when = new Date(g.endedAt).toLocaleString();
         const type = g.gameType === 'treeky' ? '🎴 Treeky' : '♛ Black Queen';
@@ -151,22 +151,87 @@
       const r = await api('/history/' + encodeURIComponent(id));
       if (!r.ok) { box.innerHTML = '<p class="muted">Could not load that game.</p>'; return; }
       const { game, players, rounds } = r.body;
-      const pName = (seat) => { const p = players.find((x) => x.seat === seat); return p ? p.name : ('Seat ' + seat); };
-      const playersHtml = players.slice().sort((a, b) => (a.rank || 9) - (b.rank || 9)).map((p) =>
-        '<div class="detail-player' + (p.seat === game.winnerSeat ? ' winner' : '') + '">' +
-        '<span>' + (p.rank ? '#' + p.rank + ' ' : '') + esc(p.name) + (p.isBot ? ' 🤖' : '') + '</span>' +
-        '<span>' + (p.finalScore == null ? '' : p.finalScore + ' pts') + '</span></div>').join('');
+
+      // Loser = worst rank (the player to learn from). Mine = the viewing user.
+      const ranked = players.filter((p) => p.rank);
+      const loserSeat = ranked.length ? ranked.reduce((a, b) => (b.rank > a.rank ? b : a)).seat : null;
+      const meP = players.find((p) => p.userId && this.user && p.userId === this.user.id);
+      const mySeat = meP ? meP.seat : null;
+
+      const playersHtml = players.slice().sort((a, b) => (a.rank || 9) - (b.rank || 9)).map((p) => {
+        const tag = p.seat === game.winnerSeat ? ' winner' : (p.seat === loserSeat ? ' loser' : '');
+        return '<div class="detail-player' + tag + '">' +
+          '<span>' + (p.rank ? '#' + p.rank + ' ' : '') + esc(p.name) + (p.isBot ? ' 🤖' : '') +
+          (p.seat === loserSeat ? ' <span class="loser-tag">last</span>' : '') + '</span>' +
+          '<span>' + (p.finalScore == null ? '' : p.finalScore + ' pts') + '</span></div>';
+      }).join('');
+
       let roundsHtml = '';
       if (rounds && rounds.length) {
-        roundsHtml = '<table class="rounds-table"><thead><tr><th>Round</th>' +
+        roundsHtml = '<div class="rounds-scroll"><table class="rounds-table"><thead><tr><th>Round</th>' +
           players.map((p) => '<th>' + esc(p.name) + '</th>').join('') + '</tr></thead><tbody>' +
           rounds.map((rd) => '<tr><td>' + rd.roundNo + '</td>' +
-            players.map((p) => '<td>' + ((rd.scores && rd.scores[p.seat] != null) ? rd.scores[p.seat] : '–') + '</td>').join('') +
-            '</tr>').join('') + '</tbody></table>';
+            players.map((p) => '<td>' + ((rd.scores && rd.scores[p.seat] != null) ? rd.scores[p.seat] : '-') + '</td>').join('') +
+            '</tr>').join('') + '</tbody></table></div>';
       }
       const type = game.gameType === 'treeky' ? '🎴 Treeky' : '♛ Black Queen';
       box.innerHTML = '<h3 class="detail-title">' + type + ' · ' + esc(new Date(game.endedAt).toLocaleString()) + '</h3>' +
-        '<div class="detail-players">' + playersHtml + '</div>' + roundsHtml;
+        '<div class="detail-players">' + playersHtml + '</div>' + roundsHtml +
+        this._coachingHtml(game, players, rounds, mySeat, loserSeat);
+    },
+
+    // "Learn from this game" — coach the viewing player (or the loser) on what
+    // cost them points and how to play it better next time.
+    _coachingHtml(game, players, rounds, mySeat, loserSeat) {
+      const seat = (mySeat != null) ? mySeat : loserSeat;
+      if (seat == null) return '';
+      const nameOf = (s) => { const p = players.find((x) => x.seat === s); return p ? p.name : ('Seat ' + s); };
+      const youLost = seat === loserSeat;
+      const youWon = seat === game.winnerSeat;
+      const who = (mySeat != null) ? 'You' : nameOf(seat);
+      const lead = youLost ? who + ' finished last. Here is what cost the game, and how to bounce back:'
+        : youWon ? who + ' won. A few spots where points still leaked:'
+        : 'Where ' + who.toLowerCase() + ' took points, and how to tighten up:';
+      const tips = [];
+
+      if (game.gameType === 'treeky') {
+        tips.push('Shed your most dangerous cards early (penalty cards and high ranks). Sitting on them is how you get stuck holding the bag.');
+        tips.push('Keep one defensive card, a 2 or a wild, for when the draw turns against you.');
+        tips.push('Declare "last card" the instant you are down to one card, or you take a penalty.');
+      } else {
+        // Black Queen: read each round's breakdown for this seat.
+        const mine = (rounds || []).map((rd) => ({
+          n: rd.roundNo,
+          b: rd.breakdown && rd.breakdown.find((x) => x.playerIndex === seat),
+          score: rd.scores && rd.scores[seat],
+        }));
+        const queenRounds = mine.filter((m) => m.b && m.b.tookQueen).map((m) => m.n);
+        const heartRounds = mine.filter((m) => m.b && m.b.hearts >= 4).map((m) => m.n);
+        const hasBreakdown = mine.some((m) => m.b);
+
+        if (queenRounds.length) {
+          tips.push('Round ' + queenRounds.join(', ') + ': you got stuck with the Queen of Spades, the single biggest swing in the game. Holding it, dump it the moment you cannot follow suit, onto a trick you are not winning. Without it, lead spades early to flush it out before your hand fills with hearts. Never sit on the Ace or King of spades with no small spade to duck under the Queen.');
+        }
+        if (heartRounds.length) {
+          tips.push('Round ' + heartRounds.join(', ') + ': you collected a pile of hearts. Duck under the high card so you do not win point cards, go void in a suit early so you can throw hearts away, and stop winning tricks once hearts start to fall.');
+        }
+        if (!queenRounds.length && !heartRounds.length) {
+          const worst = mine.filter((m) => m.score != null).sort((a, b) => b.score - a.score)[0];
+          if (worst && worst.score > 0) {
+            tips.push('Round ' + worst.n + ' cost you the most (' + worst.score + ' pts)' +
+              (hasBreakdown ? '.' : ' (likely the Queen if that number is large).') +
+              ' Keep leading low and ducking under high cards to bleed fewer points.');
+          }
+        }
+        tips.push('Lead low. Winning the lead with a high card hands you the trick and any points in it. Lead from your shortest suit so you go void sooner and gain escape routes.');
+        if (!hasBreakdown && rounds && rounds.length) {
+          tips.push('Tip detail (which hearts, who caught the Queen) is saved for games from now on, so future reviews get sharper.');
+        }
+      }
+
+      return '<div class="coaching"><h3 class="coach-title">Learn from this game</h3>' +
+        '<p class="coach-lead">' + esc(lead) + '</p>' +
+        '<ul class="coach-list">' + tips.map((t) => '<li>' + esc(t) + '</li>').join('') + '</ul></div>';
     },
 
     /* ---- friends --------------------------------------------------------- */
@@ -223,7 +288,7 @@
           '<div class="friend-row"><span>' + nm(u) + '</span>' +
           '<button class="btn ghost sm" data-act="remove" data-id="' + u.id + '">Remove</button></div>').join('');
       } else {
-        html += '<p class="muted">No friends yet — add someone by username above.</p>';
+        html += '<p class="muted">No friends yet. Add someone by username above.</p>';
       }
       if (outgoing && outgoing.length) {
         html += '<h3 class="friend-h">Pending (sent)</h3>' + outgoing.map((u) =>

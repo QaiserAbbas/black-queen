@@ -4,9 +4,10 @@
 # manifest.json, sw.js, icon.svg, reveal-big.png.
 node_modules
 .wrangler
+.agents
+.claude
 party
 migrations
-friends-screen.png
 server.js
 render.yaml
 wrangler.jsonc

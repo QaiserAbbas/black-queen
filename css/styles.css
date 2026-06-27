@@ -1801,54 +1801,162 @@ body.mobile .hand-zoom { bottom: calc(env(safe-area-inset-bottom) + 64px); }
 }
 
 /* =============================================================================
- * Accounts — auth bar, profile/history, friends
+ * Accounts — auth, profile/history, friends
+ * Brand-locked: dark felt + single gold accent. One radius scale
+ * (--r-card 16 / --r-field 12 / pill 999). Glass panels with a gold hairline.
  * ===========================================================================*/
-.btn.sm { padding: 0.34rem 0.7rem; font-size: 0.82rem; }
+:root {
+  --r-card: 16px;
+  --r-field: 12px;
+  --acct-line: rgba(233,196,106,0.22);     /* gold hairline */
+  --acct-ink: #eaf3ee;
+  --acct-dim: #9fb6a8;
+}
+.btn.sm { padding: 0.36rem 0.8rem; font-size: 0.82rem; border-radius: 999px; }
+.muted { color: var(--acct-dim); text-align: center; }
 
+/* ---- shared glass panel ---- */
+.auth-card, .account-panel {
+  position: relative; z-index: 2;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.07), rgba(255,255,255,0.015)),
+    rgba(6,30,20,0.74);
+  border: 1px solid var(--acct-line);
+  border-radius: var(--r-card);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.12),
+    0 24px 60px rgba(0,0,0,0.46);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+}
+.auth-card { width: min(384px, 92vw); padding: 1.6rem 1.5rem 1.5rem; display: flex; flex-direction: column; gap: 0.9rem; }
+.account-panel {
+  width: min(560px, 92vw); padding: 1.3rem 1.4rem; max-height: 62vh; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 0.85rem;
+}
+.account-panel .muted { text-align: left; padding: 0.2rem 0; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .screen.active .auth-card,
+  .screen.active .account-panel { animation: acct-rise 0.5s cubic-bezier(0.16,1,0.3,1) both; }
+}
+@keyframes acct-rise { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
+
+/* ---- auth form fields ---- */
+.auth-card label, .account-panel label {
+  display: block; margin-bottom: 0.35rem;
+  color: #d7e7dc; font-size: 0.8rem; font-weight: 600; letter-spacing: 0.01em;
+}
+.lab-hint { color: var(--acct-dim); font-weight: 400; font-size: 0.72rem; }
+.auth-card input, .account-panel input {
+  width: 100%; box-sizing: border-box;
+  padding: 0.72rem 0.85rem; font-size: 1rem;
+  color: var(--acct-ink); background: rgba(0,0,0,0.36);
+  border: 1px solid rgba(255,255,255,0.14); border-radius: var(--r-field);
+  transition: border-color 0.16s, box-shadow 0.16s;
+}
+.auth-card input::placeholder, .account-panel input::placeholder { color: rgba(214,231,220,0.55); }
+.auth-card input:focus, .account-panel input:focus {
+  outline: none; border-color: var(--gold);
+  box-shadow: 0 0 0 3px rgba(233,196,106,0.28);
+}
+/* The game's base .field is min(420px,86vw) — wider than this card. Constrain it
+   so inputs never overflow the panel, and drop its margin (card uses gap). */
+.auth-card .field, .account-panel .field { width: 100%; max-width: 100%; margin-bottom: 0; }
+.auth-card .field input, .account-panel .field input,
+.auth-card input, .account-panel input { width: 100%; max-width: 100%; box-sizing: border-box; }
+
+/* ---- segmented Log In / Register toggle ---- */
+.auth-seg {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 4px;
+  padding: 4px; border-radius: 999px;
+  background: rgba(0,0,0,0.34); border: 1px solid rgba(255,255,255,0.1);
+}
+.auth-seg-btn {
+  border: 0; cursor: pointer; padding: 0.5rem 0; border-radius: 999px;
+  font-size: 0.92rem; font-weight: 600; color: #cfe6d6;
+  background: transparent; transition: color 0.16s, background 0.16s, box-shadow 0.16s;
+}
+.auth-seg-btn:hover { color: #fff; }
+.auth-seg-btn.active {
+  color: #2a1d05;
+  background: linear-gradient(180deg, var(--gold-bright), var(--gold));
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+}
+.auth-submit { width: 100%; margin-top: 0.2rem; }
+.auth-submit:active { transform: translateY(1px); }
+.auth-error { color: #ff9b8a; margin: 0; min-height: 1.2em; font-size: 0.86rem; text-align: center; }
+
+/* ---- account bar on the menu ---- */
 .account-bar {
   position: absolute; top: 12px; right: 12px;
   display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;
   justify-content: flex-end; z-index: 5;
+  padding: 0.32rem 0.4rem 0.32rem 0.85rem; border-radius: 999px;
+  background: rgba(6,30,20,0.6); border: 1px solid var(--acct-line);
+  -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
 }
-.account-greet { color: var(--gold-bright, #f3d27a); font-weight: 600; font-size: 0.9rem; margin-right: 0.2rem; }
+.account-greet { color: var(--gold-bright); font-weight: 700; font-size: 0.9rem; }
 
-.muted { color: #9fb4a8; text-align: center; }
-
-/* history list */
-.history-list { width: min(560px, 92vw); display: flex; flex-direction: column; gap: 0.5rem; z-index: 2; max-height: 44vh; overflow-y: auto; }
+/* ---- history ---- */
+.history-list { display: flex; flex-direction: column; gap: 0.5rem; }
 .hist-row {
   display: flex; align-items: center; gap: 0.7rem; width: 100%;
-  padding: 0.7rem 0.9rem; border-radius: 12px; cursor: pointer;
-  background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
-  color: #eaf3ee; text-align: left; transition: background 0.15s;
+  padding: 0.7rem 0.9rem; border-radius: var(--r-field); cursor: pointer;
+  background: rgba(0,0,0,0.24); border: 1px solid rgba(255,255,255,0.1);
+  color: var(--acct-ink); text-align: left;
+  transition: background 0.15s, border-color 0.15s, transform 0.15s;
 }
-.hist-row:hover { background: rgba(255,255,255,0.12); }
+.hist-row:hover { background: rgba(233,196,106,0.1); border-color: var(--acct-line); transform: translateY(-1px); }
 .hist-type { font-weight: 700; }
-.hist-when { color: #9fb4a8; font-size: 0.8rem; margin-left: auto; }
-.hist-win { background: #2e7d4f; color: #fff; border-radius: 999px; padding: 0.1rem 0.6rem; font-size: 0.72rem; font-weight: 700; }
-.hist-rank { background: rgba(255,255,255,0.14); border-radius: 999px; padding: 0.1rem 0.6rem; font-size: 0.72rem; }
+.hist-when { color: var(--acct-dim); font-size: 0.8rem; margin-left: auto; }
+.hist-win { background: #2e7d4f; color: #fff; border-radius: 999px; padding: 0.12rem 0.62rem; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em; }
+.hist-rank { background: rgba(233,196,106,0.18); color: var(--gold-bright); border-radius: 999px; padding: 0.12rem 0.62rem; font-size: 0.72rem; font-weight: 600; }
 
-.history-detail { width: min(560px, 92vw); margin-top: 1rem; z-index: 2; }
-.detail-title { color: var(--gold-bright, #f3d27a); font-size: 1rem; margin: 0 0 0.6rem; text-align: center; }
-.detail-players { display: flex; flex-direction: column; gap: 0.3rem; margin-bottom: 0.9rem; }
-.detail-player { display: flex; justify-content: space-between; padding: 0.4rem 0.7rem; border-radius: 8px; background: rgba(255,255,255,0.05); }
-.detail-player.winner { background: rgba(46,125,79,0.3); }
+.history-detail:not(:empty) { padding-top: 0.9rem; border-top: 1px solid rgba(255,255,255,0.1); }
+.detail-title { color: var(--gold-bright); font-size: 0.98rem; margin: 0 0 0.7rem; }
+.detail-players { display: flex; flex-direction: column; gap: 0.32rem; margin-bottom: 0.9rem; }
+.detail-player { display: flex; justify-content: space-between; padding: 0.45rem 0.75rem; border-radius: 10px; background: rgba(0,0,0,0.22); }
+.detail-player.winner { background: rgba(46,125,79,0.28); box-shadow: inset 0 0 0 1px rgba(46,125,79,0.5); }
 .rounds-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
-.rounds-table th, .rounds-table td { padding: 0.3rem 0.45rem; text-align: center; border-bottom: 1px solid rgba(255,255,255,0.08); }
-.rounds-table th { color: #9fb4a8; font-weight: 600; }
+.rounds-table th, .rounds-table td { padding: 0.34rem 0.45rem; text-align: center; border-bottom: 1px solid rgba(255,255,255,0.08); }
+.rounds-table th { color: var(--acct-dim); font-weight: 600; }
+.rounds-table td:first-child, .rounds-table th:first-child { color: var(--gold); text-align: left; }
+.rounds-scroll { overflow-x: auto; }
 
-/* friends */
+/* loser highlight in the standings */
+.detail-player.loser { background: rgba(192,57,43,0.16); box-shadow: inset 0 0 0 1px rgba(192,57,43,0.45); }
+.loser-tag { font-size: 0.64rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase;
+  color: #ffc9c0; background: rgba(192,57,43,0.3); border-radius: 999px; padding: 0.08rem 0.5rem; margin-left: 0.4rem; }
+
+/* coaching note */
+.coaching {
+  margin-top: 1rem; padding: 0.9rem 1rem; border-radius: var(--r-field);
+  background: rgba(233,196,106,0.08); border: 1px solid var(--acct-line);
+}
+.coach-title { margin: 0 0 0.3rem; font-size: 0.9rem; color: var(--gold-bright); letter-spacing: 0.02em; }
+.coach-lead { margin: 0 0 0.55rem; color: #e7f1ea; font-size: 0.86rem; font-weight: 600; }
+.coach-list { margin: 0; padding-left: 1.1rem; display: flex; flex-direction: column; gap: 0.45rem; }
+.coach-list li { color: #d4e6da; font-size: 0.84rem; line-height: 1.5; }
+.coach-list li::marker { color: var(--gold); }
+
+/* ---- friends ---- */
 .friend-add-row { display: flex; gap: 0.5rem; }
 .friend-add-row input { flex: 1; }
-.friend-section { width: min(520px, 92vw); z-index: 2; }
-.friend-h { color: var(--gold-bright, #f3d27a); font-size: 0.92rem; margin: 1rem 0 0.5rem; }
+.friend-msg { color: #bfe0c9; font-size: 0.86rem; margin: 0; }
+.friend-msg:empty { display: none; }
+.friend-section { margin: 0; }
+.friend-section:empty { display: none; }
+.friend-h { color: var(--gold-bright); font-size: 0.86rem; font-weight: 700; letter-spacing: 0.02em; margin: 0.2rem 0 0.55rem; }
+.friend-h:first-child { margin-top: 0; }
 .friend-row {
   display: flex; align-items: center; justify-content: space-between; gap: 0.6rem;
-  padding: 0.55rem 0.85rem; border-radius: 10px; margin-bottom: 0.4rem;
-  background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); color: #eaf3ee;
+  padding: 0.6rem 0.85rem; border-radius: var(--r-field); margin-bottom: 0.45rem;
+  background: rgba(0,0,0,0.24); border: 1px solid rgba(255,255,255,0.1); color: var(--acct-ink);
 }
-.friend-actions { display: flex; gap: 0.4rem; }
+.friend-row .muted { color: var(--acct-dim); }
+.friend-actions { display: flex; gap: 0.4rem; flex-shrink: 0; }
 
 @media (max-width: 560px) {
-  .account-bar { position: static; justify-content: center; margin-bottom: 0.6rem; }
+  .account-bar { position: static; justify-content: center; margin: 0 auto 0.8rem; }
 }
