@@ -13,6 +13,6 @@ Thumbs.db
 *.log
 *.png
 .history
-
+.wrangler
 # PartyKit local dev state
 .partykit/

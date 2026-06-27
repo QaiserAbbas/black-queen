@@ -1,0 +1,43 @@
+{
+  // Black Queen on Cloudflare Workers (free plan).
+  //   • party/server.js routes /parties/:party/:room to a Durable Object and
+  //     falls back to static assets for everything else.
+  //   • Durable Objects MUST be new_sqlite_classes on the free plan.
+  //   • Static files (index.html, js, css, cards, sounds) are served by Workers
+  //     Assets (see .assetsignore for what's excluded). No R2 needed.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "black-queen",
+  "main": "party/server.js",
+  "compatibility_date": "2024-12-01",
+
+  "assets": {
+    "directory": ".",
+    "binding": "ASSETS"
+  },
+
+  "durable_objects": {
+    "bindings": [
+      { "name": "Main", "class_name": "Main" },
+      { "name": "Lobby", "class_name": "Lobby" }
+    ]
+  },
+
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["Main", "Lobby"] }
+  ],
+
+  // Accounts, friends, and game history (apply migrations/0001_init.sql).
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "black-queen-db",
+      "database_id": "287968ee-4c31-46d4-a37c-a78ef4864e5c"
+    }
+  ],
+
+  // Bind the Worker to your domain on deploy (the zone must be in this account).
+  // Comment this out to deploy to the free <name>.<subdomain>.workers.dev URL.
+  "routes": [
+    { "pattern": "blackqueen.conversions-king-apps.xyz", "custom_domain": true }
+  ]
+}

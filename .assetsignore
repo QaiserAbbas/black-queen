@@ -1,0 +1,22 @@
+# Files NOT to upload as static assets (Workers Assets). Keep node_modules out
+# above all — it would blow the file-count limit. Server source + tooling are
+# excluded too; the browser only needs index.html, css/, js/, cards/, sounds/,
+# manifest.json, sw.js, icon.svg, reveal-big.png.
+node_modules
+.wrangler
+party
+migrations
+friends-screen.png
+server.js
+render.yaml
+wrangler.jsonc
+partykit.json
+package.json
+package-lock.json
+.assetsignore
+.git
+.gitignore
+.history
+.playwright-mcp
+.DS_Store
+*.log

@@ -1,24 +1,26 @@
 /* =============================================================================
- * Black Queen — ROOM PARTY  (Cloudflare Workers / PartyKit)
+ * Black Queen — ROOM SERVER  (Cloudflare Workers + partyserver, free plan)
  * -----------------------------------------------------------------------------
- * One instance of this class == one room. PartyKit routes by URL, so the room
- * code IS `this.room.id` (clients connect to /parties/main/<CODE>). That alone
- * replaces the old single-process `rooms` Map and `clients` Map:
+ * `Main` is a partyserver Server — one Durable Object instance PER room. The
+ * room code is `this.name` (clients connect to /parties/main/<CODE>), which
+ * replaces the old single-process `rooms`/`clients` Maps:
  *   • there is no cross-room state here — see party/lobby.js for that.
- *   • `this.room.getConnection(id)` is the live socket for a connection id.
+ *   • `this.getConnection(id)` is the live socket for a connection id.
  *   • per-connection app state (seat, name, chat throttle) lives in this.clients.
  *
  * Everything else — the AUTHORITATIVE engine per room, bots filling empty seats,
  * a dropped player held for a grace window then covered by a bot, reconnect via
  * session token, spectators, Treeky — is ported verbatim from the LAN server.
  *
- * Timers: PartyKit keeps this object warm while ≥1 socket is open, so the
- * per-seat setTimeout bot/grace timers behave exactly like the Node server. When
- * the LAST socket closes we arm a Durable Object alarm to expire the room after
- * the reconnect grace (see onAlarm).
+ * Timers: partyserver keeps this object warm while ≥1 socket is open (no
+ * hibernation), so the per-seat setTimeout bot/grace timers behave exactly like
+ * the Node server. When the LAST socket closes we arm a Durable Object alarm to
+ * expire the room after the reconnect grace (see onAlarm).
  * ===========================================================================*/
 
+import { Server, getServerByName } from "partyserver";
 import { BQ } from "./engine.js";
+import { getUser } from "./api.js";
 
 // Card-smash styles a client may request (mirrors BQ.FX.SMASHES in js/fx.js).
 const SMASH_KINDS = new Set(["punch", "fire", "bolt", "ice", "bomb"]);
@@ -30,10 +32,14 @@ const RECONNECT_GRACE_MS = 90 * 1000;
 // refresh resumes on the same turn instead of finding a bot already played.
 const DISCONNECT_TURN_GRACE_MS = 15 * 1000;
 
-export default class BlackQueenRoom {
-  constructor(room) {
-    this.room = room;             // Party.Room — room.id is the 4-letter code
-    this.code = room.id;
+export class Main extends Server {
+  // Keep the object in memory (and its setTimeout bot/grace timers alive) while
+  // connections are open — we hold the authoritative engine in memory, not in
+  // storage, so hibernation would drop the game.
+  static options = { hibernate: false };
+
+  constructor(ctx, env) {
+    super(ctx, env);
 
     this.created = false;
     this.hostConnId = null;       // connection id of the (current) host
@@ -52,17 +58,18 @@ export default class BlackQueenRoom {
     this.spectators = new Set();  // connection ids watching (no seat, no cards)
     this.punchNext = null;        // smash style riding along the next cardPlayed
 
-    // connId -> { seat, name, lastChatAt, leaving }
+    this.gameDbId = null;         // D1 games.id for the current game (history)
+
+    // connId -> { seat, name, lastChatAt, userId }
     this.clients = new Map();
   }
 
   /* ---- transport helpers ------------------------------------------------- */
   send(conn, obj) { if (conn) { try { conn.send(JSON.stringify(obj)); } catch (_) {} } }
-  connOf(connId) { return connId ? this.room.getConnection(connId) : null; }
+  connOf(connId) { return connId ? this.getConnection(connId) : null; }
   meta(conn) { return this.clients.get(conn.id); }
 
   makeToken() {
-    // crypto.getRandomValues exists in the Workers runtime.
     const b = new Uint8Array(16);
     crypto.getRandomValues(b);
     return Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
@@ -71,11 +78,11 @@ export default class BlackQueenRoom {
   // Tell the lobby registry whether this room is open / live (or gone).
   async reportLobby(removed) {
     try {
-      const lobby = this.room.context.parties.lobby.get("lobby");
-      await lobby.fetch({
+      const stub = await getServerByName(this.env.Lobby, "lobby");
+      await stub.fetch("https://lobby/report", {
         method: "POST",
         body: JSON.stringify({
-          code: this.code,
+          code: this.name,
           removed: !!removed,
           started: this.started,
           joinable: this.isJoinable(),
@@ -91,22 +98,79 @@ export default class BlackQueenRoom {
     return this.seats.some((s) => s.open);
   }
 
+  /* ---- game history (D1) — best-effort; never blocks gameplay ------------ */
+  randomId() {
+    const b = new Uint8Array(12);
+    crypto.getRandomValues(b);
+    return Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+  }
+
+  // Open a games row when a game starts. Fire-and-forget: rounds/game_players
+  // are written seconds later, by which time this insert has long landed.
+  recordGameStart() {
+    if (!this.env.DB) { this.gameDbId = null; return; }
+    this.gameDbId = this.randomId();
+    this.env.DB.prepare(
+      `INSERT INTO games (id, code, game_type, started_at) VALUES (?, ?, ?, ?)`
+    ).bind(this.gameDbId, this.name, this.gameType, Date.now()).run().catch(() => {});
+  }
+
+  recordRound(roundNo, scores, totals) {
+    if (!this.gameDbId || !this.env.DB) return;
+    this.env.DB.prepare(
+      `INSERT OR REPLACE INTO rounds (game_id, round_no, scores, totals, created_at) VALUES (?, ?, ?, ?, ?)`
+    ).bind(this.gameDbId, roundNo, JSON.stringify(scores || []), JSON.stringify(totals || []), Date.now())
+     .run().catch(() => {});
+  }
+
+  // Finalize a finished game: stamp the winner + write one game_players row per
+  // seat (humans carry user_id; bots/vacated seats are null).
+  // ranking is an array of { index, ... } objects, best-first (both engines).
+  recordGameOver(winnerSeat, ranking, scores) {
+    if (!this.gameDbId || !this.env.DB) return;
+    const rank = (seat) => {
+      if (!Array.isArray(ranking)) return null;
+      const i = ranking.findIndex((r) => r && r.index === seat);
+      return i < 0 ? null : i + 1;
+    };
+    const stmts = [
+      this.env.DB.prepare(`UPDATE games SET ended_at = ?, winner_seat = ? WHERE id = ?`)
+        .bind(Date.now(), (winnerSeat == null ? null : winnerSeat), this.gameDbId),
+    ];
+    this.seats.forEach((s, seat) => {
+      stmts.push(
+        this.env.DB.prepare(
+          `INSERT OR REPLACE INTO game_players (game_id, seat, user_id, name, is_bot, final_score, rank)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`
+        ).bind(
+          this.gameDbId, seat, s.userId || null, s.name, this.seatIsBot(seat) ? 1 : 0,
+          (scores && scores[seat] != null) ? scores[seat] : null, rank(seat)
+        )
+      );
+    });
+    this.env.DB.batch(stmts).catch(() => {});
+  }
+
   /* =============================================================================
    * Connection lifecycle
    * ===========================================================================*/
-  async onStart() {
-    // A connection arrived — cancel any pending room-expiry alarm.
-    await this.room.storage.deleteAlarm();
+  onConnect(conn, ctx) {
+    // Register the connection SYNCHRONOUSLY so the first message (usually
+    // `create`) always finds its meta. Seat assignment happens on
+    // create/join/resume; until then this is an anonymous menu connection.
+    const meta = { seat: -1, name: "Player", lastChatAt: 0, userId: null };
+    this.clients.set(conn.id, meta);
+    this.ctx.storage.deleteAlarm().catch(() => {});
+
+    // Resolve the logged-in user from the session cookie in the background (so a
+    // finished game records to their history). handleMessage awaits this before
+    // it assigns a seat, so the userId is always known by create/join time.
+    meta.userReady = (ctx && ctx.request && this.env.DB)
+      ? getUser(ctx.request, this.env).then((u) => { if (u) meta.userId = u.id; }).catch(() => {})
+      : Promise.resolve();
   }
 
-  onConnect(conn) {
-    // Seat assignment happens on create/join/resume/spectate; until then this is
-    // an anonymous menu connection.
-    this.clients.set(conn.id, { seat: -1, name: "Player", lastChatAt: 0, leaving: false });
-    this.room.storage.deleteAlarm().catch(() => {});
-  }
-
-  onMessage(raw, conn) {
+  onMessage(conn, raw) {
     let msg; try { msg = JSON.parse(raw); } catch (_) { return; }
     this.handleMessage(conn, msg);
   }
@@ -145,7 +209,7 @@ export default class BlackQueenRoom {
 
   lobbyState() {
     return {
-      code: this.code,
+      code: this.name,
       hostId: this.hostConnId,
       started: this.started,
       maxSeats: this.rules.playerCount,
@@ -240,14 +304,14 @@ export default class BlackQueenRoom {
     this.seats.forEach((s) => {
       if (!s.connId) return;
       const c = this.connOf(s.connId);
-      if (c) this.send(c, { t: "paused", paused: !!paused, name: name || null, code: this.code });
+      if (c) this.send(c, { t: "paused", paused: !!paused, name: name || null, code: this.name });
     });
   }
 
   promptHostVacancy() {
     if (!this.vacancy) return;
     const host = this.connOf(this.hostConnId);
-    if (host) this.send(host, { t: "seatVacated", seat: this.vacancy.seat, name: this.vacancy.name, code: this.code });
+    if (host) this.send(host, { t: "seatVacated", seat: this.vacancy.seat, name: this.vacancy.name, code: this.name });
   }
 
   fillSeatWithBot(seatIdx) {
@@ -262,6 +326,7 @@ export default class BlackQueenRoom {
     seat.open = false;
     seat.disconnected = false;
     seat.botFill = true;
+    seat.userId = null;
     seat.name = name;
     if (this.engine && this.engine.players[seatIdx]) this.engine.players[seatIdx].name = name;
   }
@@ -280,9 +345,12 @@ export default class BlackQueenRoom {
   }
 
   /* ---- message router ---------------------------------------------------- */
-  handleMessage(conn, msg) {
+  async handleMessage(conn, msg) {
     const meta = this.clients.get(conn.id);
     if (!meta) return;
+    // Make sure the session lookup has resolved so seat assignment carries the
+    // right userId (resolves in ~1ms after connect; a no-op thereafter).
+    if (meta.userReady) await meta.userReady;
 
     switch (msg.t) {
       case "ping": {
@@ -353,15 +421,15 @@ export default class BlackQueenRoom {
         const token = this.makeToken();
         this.hostToken = token;
         this.hostConnId = conn.id;
-        this.seats.push({ connId: conn.id, name: meta.name, isBot: false, token });
+        this.seats.push({ connId: conn.id, name: meta.name, isBot: false, token, userId: meta.userId });
         meta.seat = 0;
-        this.send(conn, { t: "joined", code: this.code, seat: 0, token, host: true });
+        this.send(conn, { t: "joined", code: this.name, seat: 0, token, host: true });
         this.broadcastLobby();
         this.reportLobby();
         break;
       }
       case "join": {
-        if (!this.created) return this.send(conn, { t: "error", msg: "Room " + this.code + " not found." });
+        if (!this.created) return this.send(conn, { t: "error", msg: "Room " + this.name + " not found." });
         meta.name = (msg.name || "Player").slice(0, 14);
 
         // Joining an in-progress game: take over an opened seat.
@@ -378,20 +446,21 @@ export default class BlackQueenRoom {
           seat.disconnected = false;
           seat.botFill = false;
           seat.token = token;
+          seat.userId = meta.userId;
           if (this.engine && this.engine.players[openSeat]) this.engine.players[openSeat].name = meta.name;
           meta.seat = openSeat;
-          this.send(conn, { t: "joined", code: this.code, seat: openSeat, token, host: false });
+          this.send(conn, { t: "joined", code: this.name, seat: openSeat, token, host: false });
           this.send(conn, { t: "game", snapshot: this.seatSnap(openSeat), hint: { name: "resync" } });
           this.resumePlay();
           break;
         }
 
-        if (this.seats.length >= this.seatCap()) return this.send(conn, { t: "error", msg: "Room " + this.code + " is full." });
+        if (this.seats.length >= this.seatCap()) return this.send(conn, { t: "error", msg: "Room " + this.name + " is full." });
         const seat = this.seats.length;
         const token = this.makeToken();
-        this.seats.push({ connId: conn.id, name: meta.name, isBot: false, token });
+        this.seats.push({ connId: conn.id, name: meta.name, isBot: false, token, userId: meta.userId });
         meta.seat = seat;
-        this.send(conn, { t: "joined", code: this.code, seat, token, host: false });
+        this.send(conn, { t: "joined", code: this.name, seat, token, host: false });
         this.broadcastLobby();
         this.reportLobby();
         break;
@@ -401,7 +470,7 @@ export default class BlackQueenRoom {
         meta.seat = -1;
         meta.name = (msg.name || "Spectator").slice(0, 14);
         this.spectators.add(conn.id);
-        this.send(conn, { t: "spectating", code: this.code });
+        this.send(conn, { t: "spectating", code: this.name });
         if (this.started && this.engine) {
           const e = this.engine;
           const snap = () => (this.gameType === "treeky" ? this.treekySpectatorSnapshot() : this.spectatorSnapshot());
@@ -428,18 +497,19 @@ export default class BlackQueenRoom {
         if (seat.graceTimer) { clearTimeout(seat.graceTimer); seat.graceTimer = null; }
         if (seat.turnGraceTimer) { clearTimeout(seat.turnGraceTimer); seat.turnGraceTimer = null; }
         if (seat.botPlayTimer) { clearTimeout(seat.botPlayTimer); seat.botPlayTimer = null; }
-        this.room.storage.deleteAlarm().catch(() => {});
+        this.ctx.storage.deleteAlarm().catch(() => {});
 
         seat.connId = conn.id;
         seat.isBot = false;
         seat.disconnected = false;
         seat.botFill = false;
+        seat.userId = meta.userId;
         meta.seat = seatIdx;
         meta.name = seat.name;
         const isHost = !!(this.hostToken && this.hostToken === seat.token);
         if (isHost) this.hostConnId = conn.id;
 
-        this.send(conn, { t: "joined", code: this.code, seat: seatIdx, token: seat.token, host: isHost });
+        this.send(conn, { t: "joined", code: this.name, seat: seatIdx, token: seat.token, host: isHost });
 
         if (this.started && this.engine) {
           const e = this.engine;
@@ -453,7 +523,7 @@ export default class BlackQueenRoom {
           this.broadcast({ name: "sync" });
           this.broadcastPresence({ kind: "back", name: seat.name });
           if (this.paused) {
-            this.send(conn, { t: "paused", paused: true, name: this.vacancy && this.vacancy.name, code: this.code });
+            this.send(conn, { t: "paused", paused: true, name: this.vacancy && this.vacancy.name, code: this.name });
             if (isHost && this.vacancy) this.promptHostVacancy();
           }
         } else {
@@ -585,7 +655,7 @@ export default class BlackQueenRoom {
           if (c) {
             const cm = this.meta(c);
             if (cm) cm.seat = -1;
-            this.send(c, { t: "kicked", code: this.code });
+            this.send(c, { t: "kicked", code: this.name });
           }
         }
 
@@ -650,6 +720,7 @@ export default class BlackQueenRoom {
     this.lastRoundEnd = null;
     this.lastGameOver = null;
     this.rules.reshuffleEnabled = true;
+    this.recordGameStart();
 
     const engine = new BQ.GameEngine(this.rules);
     engine.initWithPlayers(this.seats.map((s) => s.name));
@@ -684,12 +755,14 @@ export default class BlackQueenRoom {
     e.on("roundEnd", (ev) => {
       this.lastRoundEnd = { round: ev.round, roundScores: ev.roundScores, totals: ev.totals, breakdown: ev.breakdown, tricks: ev.tricks, cutShort: !!ev.cutShort, gameOver: !!ev.gameOver };
       this.broadcast(Object.assign({ name: "roundEnd" }, this.lastRoundEnd));
+      this.recordRound(ev.round, ev.roundScores, ev.totals);
       this.ready = new Set();
       if (e.phase !== "gameOver") this.broadcastReady();
     });
     e.on("gameOver", (ev) => {
       this.lastGameOver = { totals: ev.totals, winnerIndex: ev.winnerIndex, ranking: ev.ranking };
       this.broadcast(Object.assign({ name: "gameOver" }, this.lastGameOver));
+      this.recordGameOver(ev.winnerIndex, ev.ranking, ev.totals);
     });
 
     e.on("turn", (ev) => {
@@ -740,6 +813,7 @@ export default class BlackQueenRoom {
     }
     this.started = true;
     this.lastGameOver = null;
+    this.recordGameStart();
 
     const engine = new BQ.TreekyEngine(this.rules);
     engine.initWithPlayers(this.seats.map((s) => s.name));
@@ -768,6 +842,9 @@ export default class BlackQueenRoom {
     e.on("gameOver", (ev) => {
       this.lastGameOver = { ranking: ev.ranking, loserIndex: ev.loserIndex };
       this.broadcast(Object.assign({ name: "gameOver" }, this.lastGameOver));
+      // Treeky winner = first to finish (ranking[0].index); no per-round totals.
+      const tWinner = Array.isArray(ev.ranking) && ev.ranking[0] ? ev.ranking[0].index : null;
+      this.recordGameOver(tWinner, ev.ranking, null);
     });
     e.on("turn", (ev) => {
       this.broadcast({ name: "turn" });
@@ -953,11 +1030,11 @@ export default class BlackQueenRoom {
           const active = this.engine && this.engine.phase === "awaitHuman";
           if (active) {
             seat.connId = null; seat.isBot = false; seat.disconnected = false;
-            seat.botFill = false; seat.open = true;
+            seat.botFill = false; seat.open = true; seat.userId = null;
             this.paused = true;
             this.vacancy = { seat: seatIdx, name: seat.name };
           } else {
-            seat.connId = null; seat.isBot = true; seat.disconnected = false; seat.open = false;
+            seat.connId = null; seat.isBot = true; seat.disconnected = false; seat.open = false; seat.userId = null;
             if (this.engine && this.engine.phase === "roundEnd") { this.ready.delete(seatIdx); this.checkReady(); }
             this.broadcast({ name: "sync" });
           }
@@ -1015,7 +1092,7 @@ export default class BlackQueenRoom {
         await this.reportLobby(true);
       } else {
         // Hold the in-progress game for a reconnect, then expire via alarm.
-        this.room.storage.setAlarm(Date.now() + RECONNECT_GRACE_MS).catch(() => {});
+        this.ctx.storage.setAlarm(Date.now() + RECONNECT_GRACE_MS).catch(() => {});
       }
     } else if (this.paused && this.vacancy) {
       this.broadcastPaused(true, this.vacancy.name);

@@ -1,47 +1,50 @@
 /* =============================================================================
- * Black Queen — LOBBY PARTY (a single shared registry)
+ * Black Queen — LOBBY (a single shared registry Durable Object)
  * -----------------------------------------------------------------------------
  * In the old single-process server, ONE Map held every room, so "join with a
- * blank code" or "watch the only live game" could just scan it. On PartyKit each
- * room is an isolated object that can't see the others — so this one fixed party
- * (room id "lobby") keeps the cross-room view:
+ * blank code" or "watch the only live game" could just scan it. On Workers each
+ * room is an isolated Durable Object that can't see the others — so this one
+ * fixed object (name "lobby") keeps the cross-room view, reached over HTTP:
  *
  *   • allocates a unique, unused 4-letter code for a new room      (GET ?need=create)
  *   • answers "give me an open room to join"                       (GET ?need=join)
  *   • answers "give me a live game to watch"                       (GET ?need=spectate)
  *   • lists everything (debug / future room browser)               (GET ?need=list)
  *
- * Each main-party room POSTs its state here on every meaningful change (created,
- * started, a seat opened/closed, torn down). The registry is persisted to this
- * party's Durable Object storage so it survives the lobby going idle.
+ * Each Main room reports its state here on every meaningful change (created,
+ * started, a seat opened/closed, torn down) via getServerByName(env.Lobby,...).
+ * It is HTTP-only (no sockets), so it evicts between requests — the registry is
+ * persisted to Durable Object storage and reloaded on demand.
  * ===========================================================================*/
+
+import { Server } from "partyserver";
 
 // Unambiguous alphabet (no 0/O/1/I) — mirrors the old makeCode().
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
 // A confirmed room with no activity for this long is considered dead and swept
-// (a safety net against rooms that vanished without POSTing a removal).
+// (a safety net against rooms that vanished without reporting a removal).
 const ENTRY_TTL_MS = 6 * 60 * 60 * 1000;   // 6 hours
 // A code reserved by ?need=create but never actually created (the client closed
 // the tab before connecting) expires quickly so it can't block its slot.
 const RESERVED_TTL_MS = 90 * 1000;
 
-export default class Lobby {
-  constructor(room) {
-    this.room = room;
+export class Lobby extends Server {
+  constructor(ctx, env) {
+    super(ctx, env);
     this.rooms = new Map();   // code -> { started, joinable, live, reserved, ts }
     this.loaded = false;
   }
 
   async load() {
     if (this.loaded) return;
-    const saved = await this.room.storage.get("rooms");
+    const saved = await this.ctx.storage.get("rooms");
     if (Array.isArray(saved)) this.rooms = new Map(saved);
     this.loaded = true;
   }
 
   async persist() {
-    await this.room.storage.put("rooms", [...this.rooms]);
+    await this.ctx.storage.put("rooms", [...this.rooms]);
   }
 
   // Drop stale entries: long-dead rooms and abandoned reservations.
@@ -92,7 +95,7 @@ export default class Lobby {
 
     if (need === "create") {
       const code = this.freshCode();
-      // Reserved (not yet joinable) until the room itself POSTs its real state.
+      // Reserved (not yet joinable) until the room itself reports its real state.
       this.rooms.set(code, { started: false, joinable: false, live: false, reserved: true, ts: Date.now() });
       await this.persist();
       return json({ code });

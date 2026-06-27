@@ -19,7 +19,33 @@
     <div class="bg-vignette"></div>
 
     <!-- ===================== MENU ===================== -->
-    <section id="menu" class="screen active">
+    <!-- ===================== AUTH (login / register) ===================== -->
+    <section id="auth" class="screen active">
+      <div class="title-wrap">
+        <h1 class="title">BLACK <span class="queen-mark">QUEEN</span></h1>
+        <p class="subtitle" id="authSubtitle">Sign in to play</p>
+      </div>
+      <div class="game-pick" role="tablist" aria-label="Log in or register">
+        <button class="game-tab active" id="authTabLogin" data-auth="login">Log In</button>
+        <button class="game-tab" id="authTabRegister" data-auth="register">Register</button>
+      </div>
+      <div class="field"><label for="authEmail">Email</label>
+        <input type="email" id="authEmail" autocomplete="username" placeholder="you@example.com" /></div>
+      <div class="field" id="authUsernameField" style="display:none"><label for="authUsername">Username <span class="lab-hint">public — friends find you by this</span></label>
+        <input type="text" id="authUsername" maxlength="20" placeholder="3–20 letters, numbers or _" autocomplete="off" /></div>
+      <div class="field"><label for="authPassword">Password</label>
+        <input type="password" id="authPassword" autocomplete="current-password" placeholder="At least 8 characters" /></div>
+      <div class="btn-row"><button class="btn" id="btnAuthSubmit">Log In</button></div>
+      <p id="authError" style="color:#ff9b8a;margin-top:1rem;min-height:1.2em;z-index:2"></p>
+    </section>
+
+    <section id="menu" class="screen">
+      <div class="account-bar" id="accountBar">
+        <span class="account-greet" id="accountGreet"></span>
+        <button class="btn ghost sm" id="btnProfile">📊 History</button>
+        <button class="btn ghost sm" id="btnFriends">👥 Friends</button>
+        <button class="btn ghost sm" id="btnLogout">Log Out</button>
+      </div>
       <div class="menu-card-fan" id="menuFan"></div>
       <div class="title-wrap">
         <h1 class="title">BLACK <span class="queen-mark">QUEEN</span></h1>
@@ -76,6 +102,31 @@
         <button class="btn" id="btnLobbyStart">Start Game</button>
         <button class="btn ghost" id="btnLobbyLeave">Leave</button>
       </div>
+    </section>
+
+    <!-- ===================== PROFILE / HISTORY ===================== -->
+    <section id="profile" class="screen">
+      <div class="title-wrap"><h1 class="title" style="font-size:clamp(2rem,6vw,3.5rem)">Your History</h1>
+        <p class="subtitle" id="profileSubtitle">Recent games</p></div>
+      <div id="historyList" class="history-list"></div>
+      <div id="historyDetail" class="history-detail"></div>
+      <div class="btn-row"><button class="btn ghost" id="btnProfileBack">Back</button></div>
+    </section>
+
+    <!-- ===================== FRIENDS ===================== -->
+    <section id="friends" class="screen">
+      <div class="title-wrap"><h1 class="title" style="font-size:clamp(2rem,6vw,3.5rem)">Friends</h1></div>
+      <div class="field">
+        <label for="friendAdd">Add a friend by username</label>
+        <div class="friend-add-row">
+          <input type="text" id="friendAdd" maxlength="20" placeholder="username" autocomplete="off" />
+          <button class="btn" id="btnFriendAdd">Add</button>
+        </div>
+      </div>
+      <p id="friendMsg" style="min-height:1.2em;color:#bfe0c9;z-index:2"></p>
+      <div id="friendRequests" class="friend-section"></div>
+      <div id="friendList" class="friend-section"></div>
+      <div class="btn-row"><button class="btn ghost" id="btnFriendsBack">Back</button></div>
     </section>
 
     <!-- ===================== SETUP (name) ===================== -->
@@ -501,6 +552,7 @@
   <script src="js/sound.js"></script>
   <script src="js/ui.js"></script>
   <script src="js/treeky-ui.js"></script>
+  <script src="js/account.js"></script>
   <script src="js/main.js"></script>
 </body>
 </html>

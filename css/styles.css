@@ -1799,3 +1799,56 @@ body.mobile .hand-zoom { bottom: calc(env(safe-area-inset-bottom) + 64px); }
   .tk-bname .nm { max-width: 48px; }
   .tk-bstats { font-size: 0.66rem; }
 }
+
+/* =============================================================================
+ * Accounts — auth bar, profile/history, friends
+ * ===========================================================================*/
+.btn.sm { padding: 0.34rem 0.7rem; font-size: 0.82rem; }
+
+.account-bar {
+  position: absolute; top: 12px; right: 12px;
+  display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;
+  justify-content: flex-end; z-index: 5;
+}
+.account-greet { color: var(--gold-bright, #f3d27a); font-weight: 600; font-size: 0.9rem; margin-right: 0.2rem; }
+
+.muted { color: #9fb4a8; text-align: center; }
+
+/* history list */
+.history-list { width: min(560px, 92vw); display: flex; flex-direction: column; gap: 0.5rem; z-index: 2; max-height: 44vh; overflow-y: auto; }
+.hist-row {
+  display: flex; align-items: center; gap: 0.7rem; width: 100%;
+  padding: 0.7rem 0.9rem; border-radius: 12px; cursor: pointer;
+  background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
+  color: #eaf3ee; text-align: left; transition: background 0.15s;
+}
+.hist-row:hover { background: rgba(255,255,255,0.12); }
+.hist-type { font-weight: 700; }
+.hist-when { color: #9fb4a8; font-size: 0.8rem; margin-left: auto; }
+.hist-win { background: #2e7d4f; color: #fff; border-radius: 999px; padding: 0.1rem 0.6rem; font-size: 0.72rem; font-weight: 700; }
+.hist-rank { background: rgba(255,255,255,0.14); border-radius: 999px; padding: 0.1rem 0.6rem; font-size: 0.72rem; }
+
+.history-detail { width: min(560px, 92vw); margin-top: 1rem; z-index: 2; }
+.detail-title { color: var(--gold-bright, #f3d27a); font-size: 1rem; margin: 0 0 0.6rem; text-align: center; }
+.detail-players { display: flex; flex-direction: column; gap: 0.3rem; margin-bottom: 0.9rem; }
+.detail-player { display: flex; justify-content: space-between; padding: 0.4rem 0.7rem; border-radius: 8px; background: rgba(255,255,255,0.05); }
+.detail-player.winner { background: rgba(46,125,79,0.3); }
+.rounds-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+.rounds-table th, .rounds-table td { padding: 0.3rem 0.45rem; text-align: center; border-bottom: 1px solid rgba(255,255,255,0.08); }
+.rounds-table th { color: #9fb4a8; font-weight: 600; }
+
+/* friends */
+.friend-add-row { display: flex; gap: 0.5rem; }
+.friend-add-row input { flex: 1; }
+.friend-section { width: min(520px, 92vw); z-index: 2; }
+.friend-h { color: var(--gold-bright, #f3d27a); font-size: 0.92rem; margin: 1rem 0 0.5rem; }
+.friend-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.6rem;
+  padding: 0.55rem 0.85rem; border-radius: 10px; margin-bottom: 0.4rem;
+  background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); color: #eaf3ee;
+}
+.friend-actions { display: flex; gap: 0.4rem; }
+
+@media (max-width: 560px) {
+  .account-bar { position: static; justify-content: center; margin-bottom: 0.6rem; }
+}

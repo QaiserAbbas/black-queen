@@ -414,16 +414,22 @@
     const w = $('#btnWatch'); if (w) w.disabled = !on;
   }
 
-  // Open the multiplayer screen and immediately probe the server.
+  // Open the multiplayer screen and probe the server. There is no room to open a
+  // socket to yet (a room code is assigned on create / typed on join), so we just
+  // confirm the lobby endpoint is reachable over HTTP.
   function openMultiplayer() {
     $('#mpError').textContent = '';
     ui.show('mp');
     $('#mpName').focus();
     setControlsEnabled(false);
     setMpStatus('Connecting to server…', '');
-    ensureConnected()
-      .then(() => { setMpStatus('✓ Connected. Create a room or join with a code.', 'ok'); setControlsEnabled(true); })
-      .catch((err) => { setMpStatus(serverHelp(err), 'bad'); setControlsEnabled(true); });
+    fetch('/parties/lobby/lobby?need=list')
+      .then((r) => {
+        if (!r.ok) throw new Error('unreachable');
+        setMpStatus('✓ Connected. Create a room or join with a code.', 'ok');
+        setControlsEnabled(true);
+      })
+      .catch(() => { setMpStatus('Could not reach the game server. Refresh and try again.', 'bad'); setControlsEnabled(true); });
   }
 
   // Open (or reuse) a socket bound to a specific room code. On PartyKit the room
@@ -1543,8 +1549,20 @@
       navigator.serviceWorker.register('sw.js').catch(() => {});
     }
 
-    // If we were in a game and the page reloaded, jump straight back into it.
-    attemptResume();
+    // Accounts: login is REQUIRED. Gate the app behind auth — BQ.Account.boot()
+    // shows the login screen, or (if a session exists) calls onReady, where we
+    // set the player name, reveal the menu, and resume any in-progress game.
+    BQ.Account.init({
+      ui,
+      onReady: (user) => {
+        myName = user.displayName || user.username;
+        const mp = $('#mpName'); if (mp) mp.value = myName;
+        const pn = $('#playerName'); if (pn) pn.value = myName;
+        ui.show('menu');
+        attemptResume();
+      },
+    });
+    BQ.Account.boot();
   }
 
   document.addEventListener('DOMContentLoaded', wire);
