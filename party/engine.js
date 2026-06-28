@@ -6,7 +6,7 @@
  * their side effects populates globalThis.BQ; we just re-export it so the party
  * servers can `import { BQ } from "./engine.js"`.
  *
- * Order matters: config → cards → ai → engine, then the Treeky pair.
+ * Order matters: config → cards → ai → engine, then the Treeky + Bluff pairs.
  * ===========================================================================*/
 
 import "../js/config.js";
@@ -15,5 +15,7 @@ import "../js/ai.js";
 import "../js/engine.js";
 import "../js/treeky-engine.js";
 import "../js/treeky-ai.js";
+import "../js/bluff-engine.js";
+import "../js/bluff-ai.js";
 
 export const BQ = globalThis.BQ;

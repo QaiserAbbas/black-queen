@@ -44,7 +44,7 @@ export class Main extends Server {
     this.created = false;
     this.hostConnId = null;       // connection id of the (current) host
     this.hostToken = null;        // host's seat token — lets the host reclaim host
-    this.gameType = "blackqueen"; // 'blackqueen' | 'treeky'
+    this.gameType = "blackqueen"; // 'blackqueen' | 'treeky' | 'bluff'
     this.rules = null;
 
     this.seats = [];              // [{connId|null, name, isBot, token, disconnected, open, botFill, ...timers}]
@@ -57,6 +57,8 @@ export class Main extends Server {
     this.vacancy = null;          // {seat, name} the host is being asked to resolve
     this.spectators = new Set();  // connection ids watching (no seat, no cards)
     this.punchNext = null;        // smash style riding along the next cardPlayed
+    this.bluffWindowTimer = null;     // Bluff: closes a stalled human doubt window
+    this.bluffChallengeTimers = [];   // Bluff: pending per-bot doubt decisions
 
     this.gameDbId = null;         // D1 games.id for the current game (history)
 
@@ -341,6 +343,10 @@ export class Main extends Server {
     if (e && e.phase === "awaitHuman" && this.seatIsBot(e.currentPlayerIndex)) {
       this.scheduleBot(e.currentPlayerIndex);
     }
+    // Bluff: re-arm a doubt window that was frozen while the table was paused.
+    if (e && this.gameType === "bluff" && e.phase === "awaitChallenge") {
+      this.scheduleBluffWindow();
+    }
     this.broadcast({ name: "resync" });
     this.broadcastPresence();
     this.reportLobby();
@@ -418,6 +424,13 @@ export class Main extends Server {
           if (typeof tr.botThinkMs === "number") this.rules.botThinkMs = Math.max(300, Math.min(3000, tr.botThinkMs));
           if (tr.decks === 1 || tr.decks === 2) this.rules.decks = tr.decks;
           if (tr.playDirection === "left" || tr.playDirection === "right") this.rules.playDirection = tr.playDirection;
+        } else if (msg.gameType === "bluff") {
+          this.gameType = "bluff"; this.rules = BQ.cloneBluffRules();
+          const br = msg.bluffRules || {};
+          if (br.decks === 1 || br.decks === 2) this.rules.decks = br.decks;
+          if ([2, 3, 4, 5].indexOf(br.maxPerPlay) >= 0) this.rules.maxPerPlay = br.maxPerPlay;
+          if (typeof br.botThinkMs === "number") this.rules.botThinkMs = Math.max(300, Math.min(3000, br.botThinkMs));
+          if (br.playDirection === "left" || br.playDirection === "right") this.rules.playDirection = br.playDirection;
         }
         meta.name = (msg.name || "Host").slice(0, 14);
         const token = this.makeToken();
@@ -475,9 +488,11 @@ export class Main extends Server {
         this.send(conn, { t: "spectating", code: this.name });
         if (this.started && this.engine) {
           const e = this.engine;
-          const snap = () => (this.gameType === "treeky" ? this.treekySpectatorSnapshot() : this.spectatorSnapshot());
+          const snap = () => (this.gameType === "treeky" ? this.treekySpectatorSnapshot()
+            : this.gameType === "bluff" ? this.bluffSpectatorSnapshot()
+            : this.spectatorSnapshot());
           this.send(conn, { t: "game", snapshot: snap(), hint: { name: "resync" } });
-          if (this.gameType === "treeky") {
+          if (this.gameType !== "blackqueen") {
             if (e.phase === "gameOver" && this.lastGameOver) {
               this.send(conn, { t: "game", snapshot: snap(), hint: Object.assign({ name: "gameOver" }, this.lastGameOver) });
             }
@@ -516,7 +531,7 @@ export class Main extends Server {
         if (this.started && this.engine) {
           const e = this.engine;
           this.send(conn, { t: "game", snapshot: this.seatSnap(seatIdx), hint: { name: "resync" } });
-          if (this.gameType !== "treeky" && e.phase === "roundEnd" && this.lastRoundEnd) {
+          if (this.gameType === "blackqueen" && e.phase === "roundEnd" && this.lastRoundEnd) {
             this.send(conn, { t: "game", snapshot: this.seatSnap(seatIdx), hint: Object.assign({ name: "roundEnd" }, this.lastRoundEnd) });
             this.broadcastReady();
           } else if (e.phase === "gameOver" && this.lastGameOver) {
@@ -591,6 +606,17 @@ export class Main extends Server {
         if (e.phase === "awaitReshuffle" && e.reshuffleSeat === meta.seat) e.beginPlay();
         break;
       }
+      // ---- Bluff doubt window --------------------------------------------
+      case "challenge": {
+        if (!this.engine || this.paused || this.gameType !== "bluff") break;
+        this.engine.challenge(meta.seat);
+        break;
+      }
+      case "passChallenge": {
+        if (!this.engine || this.paused || this.gameType !== "bluff") break;
+        this.engine.passChallenge(meta.seat);
+        break;
+      }
       case "play": {
         if (!this.engine) return;
         if (this.paused) return;
@@ -598,6 +624,10 @@ export class Main extends Server {
         if (this.gameType === "treeky") {
           if (e.phase === "awaitHuman" && e.currentPlayerIndex === meta.seat) e.playHuman(msg.cardId, msg.suit);
           else if (e.phase === "awaitSuit" && e.currentPlayerIndex === meta.seat && msg.suit) e.chooseSuit(meta.seat, msg.suit);
+          return;
+        }
+        if (this.gameType === "bluff") {
+          if (e.phase === "awaitHuman" && e.currentPlayerIndex === meta.seat) e.playClaim(meta.seat, msg.rank, msg.cardIds);
           return;
         }
         if (e.phase === "awaitHuman" && e.currentPlayerIndex === meta.seat) {
@@ -713,6 +743,7 @@ export class Main extends Server {
   /* ---- start / run a game ------------------------------------------------- */
   startGame() {
     if (this.gameType === "treeky") return this.startTreekyGame();
+    if (this.gameType === "bluff") return this.startBluffGame();
     const botPool = BQ.cloneOf(this.rules.botNames);
     while (this.seats.length < this.rules.playerCount) {
       const name = botPool.splice(Math.floor(Math.random() * botPool.length), 1)[0] || ("Bot " + this.seats.length);
@@ -775,6 +806,7 @@ export class Main extends Server {
 
   scheduleBot(seat) {
     if (this.gameType === "treeky") return this.scheduleTreekyBot(seat);
+    if (this.gameType === "bluff") return this.scheduleBluffBot(seat);
     if (this.paused) return;
     if (this.seatAwaitingReconnect(seat)) return;
     const e = this.engine;
@@ -796,10 +828,14 @@ export class Main extends Server {
    * TREEKY
    * ===========================================================================*/
   seatCap() {
-    return this.gameType === "treeky" ? (this.rules.maxPlayers || 10) : this.rules.playerCount;
+    if (this.gameType === "treeky") return this.rules.maxPlayers || 10;
+    if (this.gameType === "bluff") return this.rules.maxPlayers || 8;
+    return this.rules.playerCount;
   }
   seatSnap(seat) {
-    return this.gameType === "treeky" ? this.treekySnapshotFor(seat) : this.snapshotFor(seat);
+    if (this.gameType === "treeky") return this.treekySnapshotFor(seat);
+    if (this.gameType === "bluff") return this.bluffSnapshotFor(seat);
+    return this.snapshotFor(seat);
   }
 
   startTreekyGame() {
@@ -936,6 +972,172 @@ export class Main extends Server {
     }
   }
 
+  /* =============================================================================
+   * BLUFF
+   * ===========================================================================*/
+  startBluffGame() {
+    const fillTo = Math.min(this.rules.fillToMin || 4, this.seatCap());
+    const botPool = BQ.cloneOf(this.rules.botNames);
+    const used = new Set(this.seats.map((s) => s.name));
+    while (this.seats.length < fillTo) {
+      let name = botPool.splice(Math.floor(Math.random() * botPool.length), 1)[0];
+      while (name && used.has(name)) name = botPool.splice(Math.floor(Math.random() * botPool.length), 1)[0];
+      name = name || ("Bot " + (this.seats.length + 1));
+      used.add(name);
+      this.seats.push({ connId: null, name, isBot: true });
+    }
+    this.started = true;
+    this.lastGameOver = null;
+    this.recordGameStart();
+
+    const engine = new BQ.BluffEngine(this.rules);
+    engine.initWithPlayers(this.seats.map((s) => s.name));
+    this.engine = engine;
+
+    this.ready = new Set();
+    this.wireBluffEngine();
+    engine.start();
+    this.broadcastPresence();
+    this.reportLobby();
+  }
+
+  wireBluffEngine() {
+    const e = this.engine;
+    e.on("gameStart", () => this.broadcast({ name: "gameStart" }));
+    e.on("turn", (ev) => {
+      this.clearBluffWindow();
+      this.broadcast({ name: "turn" });
+      if (this.seatIsBot(ev.playerIndex)) this.scheduleBot(ev.playerIndex);
+    });
+    e.on("cardPlayed", (ev) => this.broadcast({ name: "cardPlayed", playerIndex: ev.playerIndex, rank: ev.rank, count: ev.count }));
+    e.on("challengeWindow", (ev) => {
+      this.broadcast({ name: "challengeWindow", by: ev.by, rank: ev.rank, count: ev.count });
+      this.scheduleBluffWindow();
+    });
+    e.on("challengePassed", (ev) => this.broadcast({ name: "challengePassed", playerIndex: ev.playerIndex }));
+    e.on("challengeResolved", (ev) => {
+      this.clearBluffWindow();
+      this.broadcast({
+        name: "challengeResolved", challenger: ev.challenger, by: ev.by, rank: ev.rank,
+        wasBluff: ev.wasBluff, revealed: ev.revealed, loser: ev.loser,
+      });
+    });
+    // dup-key trick (see Treeky): the trailing `name: ev.name` is what reaches the
+    // client as the hint name — here the finishing player's name.
+    e.on("playerFinished", (ev) => this.broadcast({ playerIndex: ev.playerIndex, rank: ev.rank, name: ev.name }));
+    e.on("gameOver", (ev) => {
+      this.clearBluffWindow();
+      this.lastGameOver = { ranking: ev.ranking, loserIndex: ev.loserIndex };
+      this.broadcast(Object.assign({ name: "gameOver" }, this.lastGameOver));
+      const winner = Array.isArray(ev.ranking) && ev.ranking[0] ? ev.ranking[0].index : null;
+      this.recordGameOver(winner, ev.ranking, null);
+    });
+  }
+
+  scheduleBluffBot(seat) {
+    if (this.paused) return;
+    if (this.seatAwaitingReconnect(seat)) return;
+    const e = this.engine;
+    const s = this.seats[seat];
+    if (s && s.botPlayTimer) { clearTimeout(s.botPlayTimer); s.botPlayTimer = null; }
+    const timer = setTimeout(() => {
+      if (s) s.botPlayTimer = null;
+      if (this.paused || !this.engine || this.engine !== e) return;
+      if (e.currentPlayerIndex !== seat || !this.seatIsBot(seat)) return;
+      if (e.phase !== "awaitHuman") return;
+      const move = BQ.BluffAI.choosePlay(e, seat);
+      if (move && move.cardIds && move.cardIds.length) e.playClaim(seat, move.rank, move.cardIds);
+    }, Math.max(150, this.rules.botThinkMs));
+    if (s) s.botPlayTimer = timer;
+  }
+
+  // Open doubt window: let each eligible BOT (incl. offline/bot-filled seats)
+  // decide, and arm a backstop that auto-passes anyone still undecided so a
+  // slow or absent human can never freeze the table.
+  scheduleBluffWindow() {
+    this.clearBluffWindow();
+    const e = this.engine;
+    if (!e || e.phase !== "awaitChallenge") return;
+    e.players.forEach((p, seat) => {
+      if (!e.canChallenge(seat) || !this.seatIsBot(seat)) return;
+      const t = setTimeout(() => {
+        if (this.paused || !this.engine || this.engine !== e) return;
+        if (!e.canChallenge(seat)) return;
+        if (BQ.BluffAI.decideChallenge(e, seat)) e.challenge(seat);
+        else e.passChallenge(seat);
+      }, Math.max(150, this.rules.botThinkMs) + seat * 180);
+      this.bluffChallengeTimers.push(t);
+    });
+    this.bluffWindowTimer = setTimeout(() => {
+      this.bluffWindowTimer = null;
+      if (this.paused || !this.engine || this.engine !== e || e.phase !== "awaitChallenge") return;
+      e.players.forEach((p, seat) => { if (e.canChallenge(seat)) e.passChallenge(seat); });
+    }, Math.max(3000, this.rules.challengeWindowMs || 9000));
+  }
+
+  clearBluffWindow() {
+    if (this.bluffWindowTimer) { clearTimeout(this.bluffWindowTimer); this.bluffWindowTimer = null; }
+    this.bluffChallengeTimers.forEach((t) => clearTimeout(t));
+    this.bluffChallengeTimers = [];
+  }
+
+  bluffRulesPayload(r) {
+    return { gameName: r.gameName, maxPerPlay: r.maxPerPlay, decks: r.decks };
+  }
+
+  bluffSnapshotFor(seat) {
+    const e = this.engine;
+    const myTurn = e.phase === "awaitHuman" && e.currentPlayerIndex === seat;
+    const phase = e.phase === "gameOver" ? "gameOver"
+      : myTurn ? "awaitHuman"
+      : (e.phase === "awaitChallenge" ? "awaitChallenge" : "playing");
+    return {
+      gameType: "bluff",
+      you: seat,
+      youAreHost: !!(this.seats[seat] && this.seats[seat].connId === this.hostConnId),
+      phase,
+      dealerIndex: e.dealerIndex,
+      currentPlayerIndex: e.currentPlayerIndex,
+      pileCount: e.pile.length,
+      claim: e.claim ? { by: e.claim.by, rank: e.claim.rank, count: e.claim.count } : null,
+      finishedOrder: e.finishedOrder.slice(),
+      rules: this.bluffRulesPayload(e.rules),
+      players: e.players.map((p, i) => ({
+        index: i, name: p.name, isBot: this.seatIsBot(i),
+        offline: !!(this.seats[i] && this.seats[i].disconnected),
+        finished: p.finished, finishRank: p.finishRank,
+        handCount: p.hand.length,
+        hand: i === seat ? p.hand.map((c) => ({ rank: c.rank, suit: c.suit, id: c.id })) : null,
+      })),
+      canPlay: myTurn,
+      canChallenge: e.canChallenge(seat),
+      maxClaim: e.maxClaimFor(seat),
+    };
+  }
+
+  bluffSpectatorSnapshot() {
+    const s = this.bluffSnapshotFor(0);
+    s.you = -1; s.spectator = true; s.youAreHost = false;
+    s.phase = this.engine.phase === "gameOver" ? "gameOver"
+      : (this.engine.phase === "awaitChallenge" ? "awaitChallenge" : "playing");
+    s.canPlay = false; s.canChallenge = false; s.maxClaim = 0;
+    s.players = s.players.map((p) => Object.assign({}, p, { hand: null }));
+    return s;
+  }
+
+  bluffBroadcast(hint) {
+    this.seats.forEach((s, seat) => {
+      if (!s.connId) return;
+      const c = this.connOf(s.connId);
+      if (!c) return;
+      this.send(c, { t: "game", snapshot: this.bluffSnapshotFor(seat), hint });
+    });
+    if (this.spectators.size && this.engine) {
+      const snap = this.bluffSpectatorSnapshot();
+      for (const id of this.spectators) { const c = this.connOf(id); if (c) this.send(c, { t: "game", snapshot: snap, hint }); }
+    }
+  }
+
   /* ---- Black Queen per-seat snapshot ------------------------------------- */
   snapshotFor(seat) {
     const e = this.engine;
@@ -995,6 +1197,7 @@ export class Main extends Server {
 
   broadcast(hint) {
     if (this.gameType === "treeky") return this.treekyBroadcast(hint);
+    if (this.gameType === "bluff") return this.bluffBroadcast(hint);
     this.seats.forEach((s, seat) => {
       if (!s.connId) return;
       const c = this.connOf(s.connId);

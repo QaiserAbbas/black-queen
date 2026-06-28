@@ -57,6 +57,7 @@
       <div class="game-pick" id="gamePick" role="tablist" aria-label="Choose a game">
         <button class="game-tab active" id="pickBlackQueen" data-game="blackqueen">♛ Black Queen</button>
         <button class="game-tab" id="pickTreeky" data-game="treeky">🎴 Treeky</button>
+        <button class="game-tab" id="pickBluff" data-game="bluff">🃏 Bluff</button>
       </div>
       <div class="btn-row">
         <button class="btn" id="btnPlay">Single Player</button>
@@ -275,6 +276,61 @@
       <div class="attack-dock" id="tkAttackDock"></div>
     </section>
 
+    <!-- ===================== BLUFF GAME ===================== -->
+    <section id="bluffGame" class="screen">
+      <div class="toolbar">
+        <div class="left">
+          <div class="round-chip" id="blRoundChip">🃏 Bluff</div>
+          <div class="net-pill mp-only" id="blNetPill">🟢 online</div>
+          <div class="peers-chip mp-only" id="blPeersChip" title="Who's connected">👥</div>
+        </div>
+        <div class="right">
+          <button class="icon-btn" id="blBtnLook" title="Appearance">🎨</button>
+          <button class="icon-btn" id="blBtnMusic" title="Mute music (sound effects stay on)">🎵</button>
+          <button class="icon-btn" id="blBtnSound" title="Toggle all sound">🔊</button>
+          <button class="icon-btn" id="blBtnStandings" title="Standings">📊</button>
+          <button class="icon-btn" id="blBtnSettings" title="Game settings">⚙️</button>
+          <button class="icon-btn" id="blQuit" title="Quit to menu">✕</button>
+        </div>
+      </div>
+
+      <div class="tk-table">
+        <div class="tk-felt">
+          <!-- opponents (2–8 players) — positioned around a circle by JS -->
+          <div class="tk-seats" id="blSeats"></div>
+
+          <!-- centre: the face-down pile, current claim, and the reveal flash -->
+          <div class="bl-center">
+            <div class="bl-claim" id="blClaim" style="display:none"></div>
+            <div class="bl-pile empty" id="blPile" title="Face-down pile">
+              <div class="card back"></div>
+              <div class="card back"></div>
+              <div class="card back"></div>
+              <div class="bl-pile-label">Pile <span id="blPileCount">0</span></div>
+            </div>
+            <div class="bl-reveal" id="blReveal"></div>
+          </div>
+        </div>
+
+        <!-- action bar + rank picker + my hand + my seat badge -->
+        <div class="tk-bottom">
+          <div class="tk-controls" id="blControls">
+            <span class="tk-status" id="blStatus"></span>
+            <div class="bl-doubt-row" id="blDoubtRow" style="display:none">
+              <button class="btn small bl-doubt" id="blBtnDoubt">🔍 BLUFF!</button>
+              <button class="btn small ghost" id="blBtnLetGo">Let it go</button>
+            </div>
+          </div>
+          <div class="bl-rank-row" id="blRankRow" style="display:none"></div>
+          <div class="bl-play-row">
+            <button class="btn" id="blBtnPlay" style="display:none" disabled>Select card(s) to play</button>
+          </div>
+          <div class="tk-hand bl-hand" id="blHand"></div>
+          <div class="tk-myseat" id="blMySeat"></div>
+        </div>
+      </div>
+    </section>
+
     <!-- ===================== Overlays ===================== -->
     <!-- Scoreboard -->
     <div class="overlay" id="scoreOverlay">
@@ -319,6 +375,7 @@
         <div class="settings-tabs" id="settingsTabs" role="tablist">
           <button class="settings-tab active" data-tab="blackqueen">♛ Black Queen</button>
           <button class="settings-tab" data-tab="treeky">🎴 Treeky</button>
+          <button class="settings-tab" data-tab="bluff">🃏 Bluff</button>
         </div>
         <div class="settings-pane" data-pane="blackqueen">
           <p style="color:#bfe0c9;font-size:0.85rem;margin-bottom:0.8rem">Every rule is editable. Changes apply on the next round (or next game for deal/player settings).</p>
@@ -327,6 +384,10 @@
         <div class="settings-pane" data-pane="treeky" style="display:none">
           <p style="color:#bfe0c9;font-size:0.85rem;margin-bottom:0.8rem">Treeky options apply to your next game (and to rooms you host).</p>
           <div class="tk-settings-form" id="settingsTreekyForm"></div>
+        </div>
+        <div class="settings-pane" data-pane="bluff" style="display:none">
+          <p style="color:#bfe0c9;font-size:0.85rem;margin-bottom:0.8rem">Bluff options apply to your next game (and to rooms you host).</p>
+          <div class="tk-settings-form" id="settingsBluffForm"></div>
         </div>
         <div class="close-row">
           <button class="btn ghost small" id="btnResetRules">Reset Defaults</button>
@@ -539,6 +600,40 @@
       </div>
     </div>
 
+    <!-- Bluff: game settings -->
+    <div class="overlay" id="blSettingsOverlay">
+      <div class="modal">
+        <h2>🃏 Bluff Settings</h2>
+        <div id="blSettingsForm" class="tk-settings-form"></div>
+        <div class="close-row">
+          <button class="btn ghost small" id="blSettingsClose">Close</button>
+          <button class="btn small" id="blSettingsSave">Save</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bluff: live standings (cards left / finish order) -->
+    <div class="overlay" id="blStandingsOverlay">
+      <div class="modal">
+        <h2>📊 Standings</h2>
+        <div class="tk-ranks" id="blStandingsBody"></div>
+        <div class="close-row"><button class="btn small" id="blStandingsClose">Close</button></div>
+      </div>
+    </div>
+
+    <!-- Bluff: final results (finish order) -->
+    <div class="overlay" id="blOverOverlay">
+      <div class="modal">
+        <h2>🏁 Game Over</h2>
+        <div class="tk-ranks" id="blOverBody"></div>
+        <div class="close-row">
+          <span id="blOverWait" style="display:none;color:#bfe0c9;align-self:center">Waiting for host…</span>
+          <button class="btn ghost small" id="blOverLeave">Main Menu</button>
+          <button class="btn small" id="blOverAgain">Play Again</button>
+        </div>
+      </div>
+    </div>
+
     <div class="hand-result" id="handResult"></div>
     <div id="fx"></div>
   </div>
@@ -552,12 +647,15 @@
   <script src="js/engine.js"></script>
   <script src="js/treeky-engine.js"></script>
   <script src="js/treeky-ai.js"></script>
+  <script src="js/bluff-engine.js"></script>
+  <script src="js/bluff-ai.js"></script>
   <script src="js/net.js"></script>
   <script src="js/voice.js"></script>
   <script src="js/fx.js"></script>
   <script src="js/sound.js"></script>
   <script src="js/ui.js"></script>
   <script src="js/treeky-ui.js"></script>
+  <script src="js/bluff-ui.js"></script>
   <script src="js/account.js"></script>
   <script src="js/main.js"></script>
 </body>

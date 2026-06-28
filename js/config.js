@@ -128,6 +128,44 @@
     botThinkMs: 1250,          // a touch slower so moves are easy to follow
   };
 
+  /* =============================================================================
+   * BLUFF — RULE CONFIGURATION
+   * -----------------------------------------------------------------------------
+   * Bluff (a.k.a. Cheat / BS / I Doubt It). The whole deck is dealt out; on your
+   * turn you place 1–maxPerPlay cards FACE DOWN and CLAIM a rank for them — any
+   * rank you like (this build uses the free-choice variant). The claim may be a
+   * lie. Any other player can call "Bluff!": the just-played cards are revealed —
+   * if the claim was false the claimer takes the whole pile, otherwise the
+   * challenger takes it. First to empty their hand wins. Everything the Bluff
+   * engine needs is read from here.
+   * ===========================================================================*/
+  const BLUFF_RULES = {
+    gameName: 'Bluff',
+
+    /* ---- Players ---------------------------------------------------------- */
+    playerCount: 4,            // single-player table size (1 human + 3 bots)
+    minPlayers: 2,             // game is valid with 2+ players
+    maxPlayers: 8,             // up to 8 seats online
+    fillToMin: 4,              // multiplayer: bots fill empty seats up to this many
+    botNames: ['Aisha', 'Omar', 'Zara', 'Bilal', 'Hana', 'Yusuf', 'Imran', 'Sana', 'Tariq'],
+
+    /* ---- Deck & deal ------------------------------------------------------ */
+    decks: 1,                  // 1 or 2 full 52-card decks (whole deck dealt out)
+    maxPerPlay: 4,             // most cards you may place (and claim) in one turn
+    // Direction of play: 'right' (default, counter-clockwise) or 'left'.
+    playDirection: 'right',
+
+    /* ---- Timing ----------------------------------------------------------- */
+    // Online: how long a human challenge window stays open before undecided
+    // players auto-let-it-go (so a slow/absent player can't stall the table).
+    challengeWindowMs: 9000,
+
+    /* ---- Presentation (shared with the other games) ----------------------- */
+    soundEnabled: true,
+    animationSpeed: 1,
+    botThinkMs: 1100,
+  };
+
   // Deep clone so callers can mutate freely without touching the defaults.
   function clone(obj) {
     return JSON.parse(JSON.stringify(obj));
@@ -136,7 +174,9 @@
   root.BQ = root.BQ || {};
   root.BQ.DEFAULT_RULES = DEFAULT_RULES;
   root.BQ.TREEKY_RULES = TREEKY_RULES;
+  root.BQ.BLUFF_RULES = BLUFF_RULES;
   root.BQ.cloneRules = function () { return clone(DEFAULT_RULES); };
   root.BQ.cloneTreekyRules = function () { return clone(TREEKY_RULES); };
+  root.BQ.cloneBluffRules = function () { return clone(BLUFF_RULES); };
   root.BQ.cloneOf = clone;
 })(typeof window !== "undefined" ? window : globalThis);

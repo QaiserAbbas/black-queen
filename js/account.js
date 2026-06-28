@@ -28,6 +28,12 @@
     return n + suffix;
   }
 
+  const GAME_META = {
+    blackqueen: { icon: '♛', name: 'Black Queen' },
+    treeky: { icon: '🎴', name: 'Treeky' },
+    bluff: { icon: '🃏', name: 'Bluff' },
+  };
+
   // Compact "2h ago" / "3d ago" relative time; falls back to a date for old games.
   function relTime(ts) {
     const t = new Date(ts).getTime();
@@ -181,9 +187,9 @@
         '</div>';
 
       const cards = '<div class="hist-grid">' + games.map((g) => {
-        const isTreeky = g.gameType === 'treeky';
-        const icon = isTreeky ? '🎴' : '♛';
-        const type = isTreeky ? 'Treeky' : 'Black Queen';
+        const meta = GAME_META[g.gameType] || GAME_META.blackqueen;
+        const icon = meta.icon;
+        const type = meta.name;
         const result = g.won ? 'Victory'
           : (g.yourRank ? ordinal(g.yourRank) + ' place' : 'Finished');
         const cls = g.won ? ' won' : (g.yourRank === 2 ? ' silver' : (g.yourRank === 3 ? ' bronze' : ''));
@@ -237,7 +243,8 @@
             players.map((p) => '<td>' + ((rd.scores && rd.scores[p.seat] != null) ? rd.scores[p.seat] : '-') + '</td>').join('') +
             '</tr>').join('') + '</tbody></table></div>';
       }
-      const type = game.gameType === 'treeky' ? '🎴 Treeky' : '♛ Black Queen';
+      const gm = GAME_META[game.gameType] || GAME_META.blackqueen;
+      const type = gm.icon + ' ' + gm.name;
       box.innerHTML = '<div class="detail-head">' +
           '<h3 class="detail-title">' + type + '</h3>' +
           '<span class="detail-date">' + esc(new Date(game.endedAt).toLocaleString()) + '</span>' +
@@ -268,6 +275,11 @@
         tips.push('Shed your most dangerous cards early (penalty cards and high ranks). Sitting on them is how you get stuck holding the bag.');
         tips.push('Keep one defensive card, a 2 or a wild, for when the draw turns against you.');
         tips.push('Declare "last card" the instant you are down to one card, or you take a penalty.');
+      } else if (game.gameType === 'bluff') {
+        tips.push('Bluff small. A lie of one card costs you only that card if it is caught — dumping four fake cards hands the whole pile back when someone doubts you.');
+        tips.push('Track the count. If you are holding three Kings and someone claims two more, that is impossible — call it. Doubt the claims your own hand makes unlikely.');
+        tips.push('Always doubt a winning play. When a player claims the cards that empty their hand, challenge it — being right ends their game, and being wrong only costs you the pile.');
+        tips.push('Play honestly while the pile is small; save your bluffs for when the pile is huge and nobody wants to risk picking it up.');
       } else {
         // Black Queen: read each round's breakdown for this seat.
         const mine = (rounds || []).map((rd) => ({

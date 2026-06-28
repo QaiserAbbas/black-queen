@@ -354,7 +354,98 @@
     }
   }
 
+  /* ---- BluffNetworkEngine: read-only mirror for the Bluff UI -------------- */
+  // Same on/emit + action-method contract as BluffEngine, but driven by server
+  // snapshots. The Bluff UI can't tell it apart from a local engine.
+  class BluffNetworkEngine {
+    constructor(client) {
+      this.client = client;
+      this.listeners = {};
+      this.players = [];
+      this.rules = {};
+      this.me = 0;
+      this.spectator = false;
+      this.youAreHost = false;
+      this.phase = 'idle';
+      this.currentPlayerIndex = 0;
+      this.dealerIndex = 0;
+      this.claim = null;
+      this.finishedOrder = [];
+      this.pile = [];
+      this._pileCount = 0;
+      this._canPlay = false;
+      this._canChallenge = false;
+      this._maxClaim = 0;
+    }
+
+    on(evt, fn) { (this.listeners[evt] = this.listeners[evt] || []).push(fn); return this; }
+    emit(evt, payload) { (this.listeners[evt] || []).forEach((fn) => fn(payload)); }
+
+    /* actions → server messages */
+    playClaim(idx, rank, cardIds) { this.client.send({ t: 'play', rank, cardIds }); return true; }
+    challenge() { this.client.send({ t: 'challenge' }); return true; }
+    passChallenge() { this.client.send({ t: 'passChallenge' }); return true; }
+
+    /* affordances (mirror the local engine's read API) */
+    pileCount() { return this._pileCount; }
+    maxClaimFor(idx) { return idx === this.me ? this._maxClaim : 0; }
+    canPlay(idx) { return this._canPlay && idx === this.me; }
+    canChallenge(idx) { return this._canChallenge && idx === this.me; }
+
+    get human() { return this.players[this.me]; }
+
+    ingest(s) {
+      this.me = s.you;
+      this.spectator = !!s.spectator;
+      this.youAreHost = !!s.youAreHost;
+      this.phase = s.phase;
+      this.rules = s.rules || {};
+      this.dealerIndex = s.dealerIndex || 0;
+      this.currentPlayerIndex = s.currentPlayerIndex;
+      this.finishedOrder = s.finishedOrder || [];
+      this.claim = s.claim || null;
+      this._pileCount = s.pileCount || 0;
+      this.pile = new Array(this._pileCount).fill(null);  // length only — for the count label
+      this._canPlay = !!s.canPlay;
+      this._canChallenge = !!s.canChallenge;
+      this._maxClaim = s.maxClaim || 0;
+      this.players = (s.players || []).map((p) => ({
+        index: p.index, name: p.name, isHuman: !p.isBot, isBot: p.isBot, offline: !!p.offline,
+        finished: !!p.finished, finishRank: p.finishRank || 0,
+        hand: p.hand ? p.hand.map((c) => BQ.cardFrom(c)) : new Array(p.handCount || 0).fill(null),
+      }));
+      this._lastSnapshot = s;
+    }
+
+    handle(s, hint) {
+      this.ingest(s);
+      const name = hint && hint.name;
+      switch (name) {
+        case 'gameStart': this.emit('gameStart', {}); this.emit('turn', { playerIndex: s.currentPlayerIndex }); break;
+        case 'turn': this.emit('turn', { playerIndex: s.currentPlayerIndex }); break;
+        case 'cardPlayed':
+          this.emit('cardPlayed', { playerIndex: hint.playerIndex, rank: hint.rank, count: hint.count, pileCount: this._pileCount });
+          break;
+        case 'challengeWindow': this.emit('challengeWindow', { by: hint.by, rank: hint.rank, count: hint.count }); break;
+        case 'challengePassed': this.emit('challengePassed', { playerIndex: hint.playerIndex }); break;
+        case 'challengeResolved':
+          this.emit('challengeResolved', {
+            challenger: hint.challenger, by: hint.by, rank: hint.rank,
+            wasBluff: hint.wasBluff, revealed: hint.revealed, loser: hint.loser, pileCount: this._pileCount,
+          });
+          break;
+        case 'playerFinished':
+          this.emit('playerFinished', { playerIndex: hint.playerIndex, rank: hint.rank, name: hint.name });
+          break;
+        case 'gameOver': this.emit('gameOver', { ranking: hint.ranking, loserIndex: hint.loserIndex }); break;
+        case 'resync': this.emit('resync', {}); this.emit('turn', { playerIndex: s.currentPlayerIndex }); break;
+        default: this.emit('state', { phase: s.phase }); break;
+      }
+    }
+  }
+
   BQ.NetClient = NetClient;
   BQ.NetworkEngine = NetworkEngine;
   BQ.TreekyNetworkEngine = TreekyNetworkEngine;
+  BQ.BluffNetworkEngine = BluffNetworkEngine;
 })(typeof window !== 'undefined' ? window : globalThis);

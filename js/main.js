@@ -31,6 +31,15 @@
   function saveTreekyRules(r) {
     try { localStorage.setItem('treeky_rules', JSON.stringify(r)); } catch (_) {}
   }
+  // Bluff has its own (small) rule set + persistence.
+  function loadBluffRules() {
+    const base = BQ.cloneBluffRules();
+    try { Object.assign(base, JSON.parse(localStorage.getItem('bluff_rules') || '{}')); } catch (_) {}
+    return base;
+  }
+  function saveBluffRules(r) {
+    try { localStorage.setItem('bluff_rules', JSON.stringify(r)); } catch (_) {}
+  }
 
   // ---- multiplayer session token (survives refresh / reconnect) ----------
   function loadSession() {
@@ -60,8 +69,10 @@
   let engine = null;
   const ui = new BQ.UI();
   const treekyUI = new BQ.TreekyUI();
-  let selectedGame = 'blackqueen';   // menu game picker: 'blackqueen' | 'treeky'
+  const bluffUI = new BQ.BluffUI();
+  let selectedGame = 'blackqueen';   // menu game picker: 'blackqueen' | 'treeky' | 'bluff'
   let treekyRules = loadTreekyRules();
+  let bluffRules = loadBluffRules();
   let settingsTab = 'blackqueen';    // active tab in the main Settings panel
 
   // ---- multiplayer state -----------------------------------------------
@@ -287,6 +298,53 @@
     const b = $('#suitPickerOverlay'); if (b) b.classList.remove('show');
   }
 
+  // Single-player Bluff: you + 3 bots, run entirely in this engine.
+  function newBluffGame(name) {
+    isMultiplayer = false; isHost = true; isSpectator = false;
+    document.body.classList.remove('mp', 'spectating');
+    clearSPGame();                       // Bluff doesn't persist; drop any Black Queen save
+    engine = new BQ.BluffEngine(BQ.cloneOf(bluffRules));
+    engine.init(name);
+    bluffUI.attach(engine);
+    bluffUI.show('bluffGame');
+    BQ.Sound.unlock();
+    if (rules.soundEnabled) BQ.Sound.startMusic();
+    const again = $('#blOverAgain'); if (again) again.style.display = '';
+    const wait = $('#blOverWait'); if (wait) wait.style.display = 'none';
+    engine.start();
+  }
+
+  function closeBluffOverlays() {
+    const a = $('#blOverOverlay'); if (a) a.classList.remove('show');
+  }
+
+  /* ---- Bluff settings form (game options) ------------------------------- */
+  function buildBluffSettingsForm(sel) {
+    const f = $(sel || '#blSettingsForm');
+    if (!f) return;
+    const opt = (label, key, opts) => {
+      const cur = bluffRules[key];
+      const options = opts.map((o) => '<option value="' + o.v + '"' + (o.v === cur ? ' selected' : '') + '>' + o.label + '</option>').join('');
+      return '<div class="row"><label>' + label + '</label><select data-key="' + key + '">' + options + '</select></div>';
+    };
+    f.innerHTML =
+      opt('Decks', 'decks', [{ v: 1, label: '1 deck (52)' }, { v: 2, label: '2 decks (104)' }]) +
+      opt('Max cards per play', 'maxPerPlay', [2, 3, 4, 5].map((v) => ({ v, label: v + ' cards' }))) +
+      opt('Play direction', 'playDirection', [{ v: 'right', label: 'Right ↻' }, { v: 'left', label: 'Left ↺' }]) +
+      opt('Table size (single-player)', 'playerCount', [2, 3, 4, 5, 6, 7, 8].map((v) => ({ v, label: v + ' players' }))) +
+      opt('Bot speed', 'botThinkMs', [{ v: 1700, label: 'Relaxed' }, { v: 1100, label: 'Normal' }, { v: 650, label: 'Fast' }]);
+  }
+  function saveBluffSettingsForm(sel) {
+    const f = $(sel || '#blSettingsForm');
+    if (!f) return;
+    f.querySelectorAll('select[data-key]').forEach((s) => {
+      const key = s.getAttribute('data-key');
+      const num = parseInt(s.value, 10);
+      bluffRules[key] = isNaN(num) ? s.value : num;
+    });
+    saveBluffRules(bluffRules);
+  }
+
   /* ---- Treeky settings form (game options) ------------------------------ */
   // `sel` is the container selector — the in-game gear uses '#tkSettingsForm',
   // the main Settings panel's Treeky tab uses '#settingsTreekyForm'.
@@ -318,7 +376,7 @@
 
   /* ---- main Settings panel: Black Queen / Treeky tabs ------------------- */
   function setSettingsTab(tab) {
-    settingsTab = (tab === 'treeky') ? 'treeky' : 'blackqueen';
+    settingsTab = (tab === 'treeky' || tab === 'bluff') ? tab : 'blackqueen';
     document.querySelectorAll('#settingsTabs .settings-tab').forEach((b) =>
       b.classList.toggle('active', b.getAttribute('data-tab') === settingsTab));
     document.querySelectorAll('#settingsOverlay .settings-pane').forEach((p) => {
@@ -328,7 +386,8 @@
   function openMainSettings() {
     buildSettingsForm();                              // Black Queen rules
     buildTreekySettingsForm('#settingsTreekyForm');   // Treeky options
-    setSettingsTab(selectedGame === 'treeky' ? 'treeky' : 'blackqueen');
+    buildBluffSettingsForm('#settingsBluffForm');     // Bluff options
+    setSettingsTab(selectedGame);
     ui.openOverlay('settingsOverlay');
   }
 
@@ -584,11 +643,22 @@
       BQ.Sound.error();
     });
     net.on('game', (m) => {
-      const treeky = m.snapshot && m.snapshot.gameType === 'treeky';
+      const gt = m.snapshot && m.snapshot.gameType;
+      const treeky = gt === 'treeky';
+      const bluff = gt === 'bluff';
       if (!netEngine) {
         isMultiplayer = true;
         document.body.classList.add('mp');   // reveals net pill, presence chip, emotes
-        if (treeky) {
+        if (bluff) {
+          netEngine = new BQ.BluffNetworkEngine(net);
+          netEngine.ingest(m.snapshot);
+          bluffUI.attach(netEngine);
+          netEngine.on('gameOver', () => {
+            const again = $('#blOverAgain'); if (again) again.style.display = isHost ? '' : 'none';
+            const wait = $('#blOverWait'); if (wait) wait.style.display = isHost ? 'none' : '';
+          });
+          bluffUI.show('bluffGame');
+        } else if (treeky) {
           netEngine = new BQ.TreekyNetworkEngine(net);
           netEngine.ingest(m.snapshot);
           treekyUI.attach(netEngine);
@@ -631,6 +701,9 @@
         net.send({ t: 'create', name: myName, gameType: selectedGame,
           treekyRules: selectedGame === 'treeky'
             ? { handSize: treekyRules.handSize, botThinkMs: treekyRules.botThinkMs, decks: treekyRules.decks, playDirection: treekyRules.playDirection }
+            : undefined,
+          bluffRules: selectedGame === 'bluff'
+            ? { decks: bluffRules.decks, maxPerPlay: bluffRules.maxPerPlay, botThinkMs: bluffRules.botThinkMs, playDirection: bluffRules.playDirection }
             : undefined });
       }).catch((err) => { setMpStatus(serverHelp(err), 'bad'); });
     });
@@ -1214,15 +1287,20 @@
   function wire() {
     // Menu — game picker (Black Queen / Treeky)
     function selectGame(g) {
-      selectedGame = (g === 'treeky') ? 'treeky' : 'blackqueen';
-      const bq = $('#pickBlackQueen'), tk = $('#pickTreeky'), sub = $('#menuSubtitle');
+      selectedGame = (g === 'treeky' || g === 'bluff') ? g : 'blackqueen';
+      const bq = $('#pickBlackQueen'), tk = $('#pickTreeky'), bl = $('#pickBluff'), sub = $('#menuSubtitle');
       if (bq) bq.classList.toggle('active', selectedGame === 'blackqueen');
       if (tk) tk.classList.toggle('active', selectedGame === 'treeky');
+      if (bl) bl.classList.toggle('active', selectedGame === 'bluff');
       if (sub) sub.textContent = selectedGame === 'treeky'
-        ? 'Shed your hand — 3s attack, Jacks are wild' : 'A Game of Hearts & Nerve';
+        ? 'Shed your hand — 3s attack, Jacks are wild'
+        : selectedGame === 'bluff'
+        ? 'Lie boldly — claim any rank, call the cheats'
+        : 'A Game of Hearts & Nerve';
     }
     $('#pickBlackQueen') && $('#pickBlackQueen').addEventListener('click', () => { BQ.Sound.click(); selectGame('blackqueen'); });
     $('#pickTreeky') && $('#pickTreeky').addEventListener('click', () => { BQ.Sound.click(); selectGame('treeky'); });
+    $('#pickBluff') && $('#pickBluff').addEventListener('click', () => { BQ.Sound.click(); selectGame('bluff'); });
 
     // Menu
     $('#btnPlay').addEventListener('click', () => { BQ.Sound.unlock(); BQ.Sound.click(); ui.show('setup'); $('#playerName').focus(); });
@@ -1238,8 +1316,8 @@
     $('#btnMpBack').addEventListener('click', () => { BQ.Sound.click(); ui.show('menu'); });
     $('#btnLobbyStart').addEventListener('click', () => {
       BQ.Sound.click();
-      // Treeky seats are symmetric (no dealing-order arrangement) — just start.
-      if (selectedGame === 'treeky') { if (net) net.send({ t: 'start' }); return; }
+      // Treeky / Bluff seats are symmetric (no dealing-order arrangement) — just start.
+      if (selectedGame === 'treeky' || selectedGame === 'bluff') { if (net) net.send({ t: 'start' }); return; }
       const st = lastLobbyState;
       // Offer seat arrangement whenever there's at least one other player to
       // place and a real choice of seats (3+ at the table, bots included).
@@ -1306,6 +1384,7 @@
       const name = ($('#playerName').value || '').trim() || 'You';
       BQ.Sound.click();
       if (selectedGame === 'treeky') newTreekyGame(name);
+      else if (selectedGame === 'bluff') newBluffGame(name);
       else newGame(name);
     }
 
@@ -1357,6 +1436,52 @@
       ui.toast('Saved — applies to your next game');
     });
     setupTreekyAttackRow();
+
+    // Bluff toolbar + results overlay
+    $('#blQuit') && $('#blQuit').addEventListener('click', () => {
+      if (!confirm('Quit to main menu? Current game will be lost.')) return;
+      closeBluffOverlays();
+      if (isMultiplayer) { leaveMultiplayer(); return; }
+      BQ.Sound.stopMusic(); engine = null;
+      bluffUI.show('menu');
+    });
+    $('#blBtnSound') && $('#blBtnSound').addEventListener('click', () => {
+      rules.soundEnabled = !rules.soundEnabled;
+      BQ.Sound.setEnabled(rules.soundEnabled);
+      saveRules(rules);
+      const t = rules.soundEnabled ? '🔊' : '🔇';
+      $('#blBtnSound').textContent = t; $('#btnSound').textContent = t;
+      if (rules.soundEnabled) { BQ.Sound.startMusic(); BQ.Sound.click(); }
+    });
+    $('#blBtnLook') && $('#blBtnLook').addEventListener('click', () => {
+      BQ.Sound.click(); buildAppearanceForm(); ui.openOverlay('lookOverlay');
+    });
+    $('#blBtnMusic') && $('#blBtnMusic').addEventListener('click', () => { BQ.Sound.click(); toggleMusic(); });
+    $('#blBtnStandings') && $('#blBtnStandings').addEventListener('click', () => {
+      BQ.Sound.click(); bluffUI.renderStandings(); ui.openOverlay('blStandingsOverlay');
+    });
+    $('#blStandingsClose') && $('#blStandingsClose').addEventListener('click', () => { BQ.Sound.click(); ui.closeOverlay('blStandingsOverlay'); });
+    $('#blBtnSettings') && $('#blBtnSettings').addEventListener('click', () => {
+      BQ.Sound.click(); buildBluffSettingsForm(); ui.openOverlay('blSettingsOverlay');
+    });
+    $('#blSettingsClose') && $('#blSettingsClose').addEventListener('click', () => { BQ.Sound.click(); ui.closeOverlay('blSettingsOverlay'); });
+    $('#blSettingsSave') && $('#blSettingsSave').addEventListener('click', () => {
+      BQ.Sound.click(); saveBluffSettingsForm(); ui.closeOverlay('blSettingsOverlay');
+      ui.toast('Saved — applies to your next game');
+    });
+    $('#blOverAgain') && $('#blOverAgain').addEventListener('click', () => {
+      BQ.Sound.click();
+      closeBluffOverlays();
+      if (isMultiplayer) { if (net) net.send({ t: 'again' }); }
+      else if (engine && engine.players[0]) newBluffGame(engine.players[0].name);
+    });
+    $('#blOverLeave') && $('#blOverLeave').addEventListener('click', () => {
+      BQ.Sound.click();
+      closeBluffOverlays();
+      if (isMultiplayer) { leaveMultiplayer(); return; }
+      BQ.Sound.stopMusic(); engine = null;
+      bluffUI.show('menu');
+    });
 
     // In-game toolbar
     $('#btnScores').addEventListener('click', () => { BQ.Sound.click(); ui.renderScoreboard(); ui.openOverlay('scoreOverlay'); });

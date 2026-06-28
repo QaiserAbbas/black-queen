@@ -1801,6 +1801,112 @@ body.mobile .hand-zoom { bottom: calc(env(safe-area-inset-bottom) + 64px); }
 }
 
 /* =============================================================================
+ * BLUFF — table extras
+ * Reuses the Treeky felt / seats / badges / hand / rank-list styling; only the
+ * centre (face-down pile + claim banner + reveal flash), the rank picker, the
+ * Play action and the doubt controls are Bluff-specific.
+ * ===========================================================================*/
+.bl-center {
+  position: absolute; left: 50%; top: 46%; transform: translate(-50%, -50%);
+  display: flex; flex-direction: column; align-items: center; gap: 0.7rem;
+  z-index: 2; pointer-events: none;
+}
+
+/* current claim banner above the pile */
+.bl-claim {
+  pointer-events: none;
+  background: rgba(6,30,20,0.82); border: 1px solid var(--gold, #e9c46a);
+  color: #f1e7cf; border-radius: 999px; padding: 0.32rem 0.95rem;
+  font-size: 0.86rem; font-weight: 600; white-space: nowrap;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.45);
+}
+.bl-claim-who { color: #fff; font-weight: 800; }
+.bl-claim-what { color: var(--gold-bright, #f4d886); font-weight: 800; }
+
+/* the face-down pile: a little stack of card backs + a count */
+.bl-pile { position: relative; width: 76px; height: 104px; }
+.bl-pile .card.back {
+  position: absolute; left: 0; top: 0; width: 100%; height: 100%;
+  box-shadow: 0 3px 8px rgba(0,0,0,0.4);
+}
+.bl-pile .card.back:nth-child(1) { transform: rotate(-5deg) translate(-2px, 1px); }
+.bl-pile .card.back:nth-child(2) { transform: rotate(3deg) translate(2px, -1px); }
+.bl-pile .card.back:nth-child(3) { transform: rotate(-1deg); }
+.bl-pile.empty .card.back { opacity: 0.22; }
+.bl-pile-label {
+  position: absolute; left: 50%; bottom: -1.4rem; transform: translateX(-50%);
+  white-space: nowrap; font-size: 0.72rem; color: #cfe6d6; opacity: 0.85;
+}
+
+/* the reveal flash when a claim is challenged */
+.bl-reveal {
+  display: none; flex-direction: column; align-items: center; gap: 0.4rem;
+  pointer-events: none; opacity: 0; transition: opacity 0.2s;
+}
+.bl-reveal.show { display: flex; opacity: 1; }
+.bl-reveal { padding: 0.5rem; border-radius: 14px; }
+.bl-reveal > .card { display: inline-block; width: 58px; height: 80px; margin: 0 2px;
+  vertical-align: middle; box-shadow: 0 4px 12px rgba(0,0,0,0.5); }
+.bl-reveal-tag {
+  font-size: 0.78rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase;
+  padding: 0.18rem 0.7rem; border-radius: 999px;
+}
+.bl-reveal.lie .bl-reveal-tag { background: rgba(192,57,43,0.9); color: #fff; }
+.bl-reveal.truth .bl-reveal-tag { background: rgba(46,125,79,0.9); color: #fff; }
+
+/* rank picker (claim any rank) */
+.bl-rank-row {
+  display: flex; flex-wrap: wrap; justify-content: center; gap: 0.3rem;
+  margin: 0.35rem auto 0.15rem; max-width: 640px;
+}
+.bl-rank {
+  min-width: 2.1rem; padding: 0.34rem 0.5rem; border-radius: 9px; cursor: pointer;
+  font-size: 0.92rem; font-weight: 800;
+  color: #e9f3ec; background: rgba(0,0,0,0.32); border: 1px solid rgba(255,255,255,0.16);
+  transition: background 0.12s, color 0.12s, transform 0.12s, border-color 0.12s;
+}
+.bl-rank:hover { background: rgba(233,196,106,0.16); }
+.bl-rank.active {
+  color: #2a1d05; border-color: var(--gold, #e9c46a);
+  background: linear-gradient(180deg, var(--gold-bright, #f4d886), var(--gold, #e9c46a));
+  transform: translateY(-1px);
+}
+
+.bl-play-row { display: flex; justify-content: center; margin: 0.2rem 0; }
+#blBtnPlay:disabled { opacity: 0.5; cursor: default; }
+
+/* a selected card in my hand lifts and gets a gold ring */
+.bl-hand .card.sel {
+  transform: translateY(-16px);
+  box-shadow: 0 0 0 2px var(--gold-bright, #f4d886), 0 10px 22px rgba(0,0,0,0.5);
+  z-index: 3;
+}
+
+/* doubt controls */
+.bl-doubt-row { display: inline-flex; gap: 0.4rem; align-items: center; }
+.btn.bl-doubt {
+  background: linear-gradient(180deg, #e0573b, #c0392b); color: #fff; border: 0;
+  font-weight: 800; letter-spacing: 0.02em;
+  box-shadow: 0 4px 14px rgba(192,57,43,0.5);
+  animation: blDoubtPulse 1.1s ease-in-out infinite;
+}
+.btn.bl-doubt:hover { filter: brightness(1.08); }
+@keyframes blDoubtPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+}
+@media (prefers-reduced-motion: reduce) { .btn.bl-doubt { animation: none; } }
+
+/* the claimer's seat glows gold during the doubt window */
+.tk-seat.claimer .tk-badge { box-shadow: 0 0 0 2px var(--gold, #e9c46a), 0 6px 16px rgba(0,0,0,0.5); }
+
+@media (max-width: 640px) {
+  .bl-pile { width: 60px; height: 84px; }
+  .bl-reveal > .card { width: 46px; height: 64px; }
+  .bl-rank { min-width: 1.8rem; padding: 0.3rem 0.4rem; font-size: 0.84rem; }
+}
+
+/* =============================================================================
  * Accounts — auth, profile/history, friends
  * Brand-locked: dark felt + single gold accent. One radius scale
  * (--r-card 16 / --r-field 12 / pill 999). Glass panels with a gold hairline.
