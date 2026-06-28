@@ -22,6 +22,24 @@
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
+  function ordinal(n) {
+    const t = n % 100, u = n % 10;
+    const suffix = (t >= 11 && t <= 13) ? 'th' : (['th', 'st', 'nd', 'rd'][u] || 'th');
+    return n + suffix;
+  }
+
+  // Compact "2h ago" / "3d ago" relative time; falls back to a date for old games.
+  function relTime(ts) {
+    const t = new Date(ts).getTime();
+    if (!t) return '';
+    const s = Math.max(0, (Date.now() - t) / 1000);
+    if (s < 60) return 'just now';
+    if (s < 3600) return Math.floor(s / 60) + 'm ago';
+    if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+    if (s < 604800) return Math.floor(s / 86400) + 'd ago';
+    return new Date(ts).toLocaleDateString();
+  }
+
   const Account = {
     user: null,
     ui: null,
@@ -121,7 +139,19 @@
       $('#btnProfileBack').addEventListener('click', () => { BQ.Sound && BQ.Sound.click(); this.ui.show('menu'); });
       $('#historyList').addEventListener('click', (e) => {
         const row = e.target.closest('[data-game]');
-        if (row) this._showGameDetail(row.dataset.game);
+        if (row) {
+          BQ.Sound && BQ.Sound.click();
+          $('#historyList').querySelectorAll('.hist-card.open').forEach((c) => c.classList.remove('open'));
+          row.classList.add('open');
+          this._showGameDetail(row.dataset.game);
+        }
+      });
+      $('#historyDetail').addEventListener('click', (e) => {
+        if (e.target.closest('[data-close]')) {
+          BQ.Sound && BQ.Sound.click();
+          $('#historyDetail').innerHTML = '';
+          $('#historyList').querySelectorAll('.hist-card.open').forEach((c) => c.classList.remove('open'));
+        }
       });
     },
 
@@ -133,16 +163,44 @@
       const r = await api('/history');
       if (!r.ok) { list.innerHTML = '<p class="muted">Could not load history.</p>'; return; }
       const games = r.body.games || [];
-      if (!games.length) { list.innerHTML = '<p class="muted">No finished games yet. Play one to see it here.</p>'; return; }
-      list.innerHTML = games.map((g) => {
-        const when = new Date(g.endedAt).toLocaleString();
-        const type = g.gameType === 'treeky' ? '🎴 Treeky' : '♛ Black Queen';
-        const badge = g.won ? '<span class="hist-win">WON</span>'
-          : (g.yourRank ? '<span class="hist-rank">#' + g.yourRank + '</span>' : '');
-        return '<button class="hist-row" data-game="' + esc(g.id) + '">' +
-          '<span class="hist-type">' + type + '</span>' +
-          '<span class="hist-when">' + esc(when) + '</span>' + badge + '</button>';
-      }).join('');
+      $('#profileSubtitle').textContent = games.length
+        ? games.length + ' game' + (games.length === 1 ? '' : 's') + ' played — tap one to review'
+        : 'Recent games';
+      if (!games.length) {
+        list.innerHTML = '<div class="hist-empty"><div class="hist-empty-mark">♛</div>' +
+          '<p>No finished games yet.</p><p class="muted">Play one to see it here.</p></div>';
+        return;
+      }
+
+      // Quick wins/games tally for the strip above the grid.
+      const wins = games.filter((g) => g.won).length;
+      const stats = '<div class="hist-stats">' +
+        '<div class="hist-stat"><b>' + games.length + '</b><span>played</span></div>' +
+        '<div class="hist-stat"><b>' + wins + '</b><span>won</span></div>' +
+        '<div class="hist-stat"><b>' + (games.length ? Math.round((wins / games.length) * 100) : 0) + '%</b><span>win rate</span></div>' +
+        '</div>';
+
+      const cards = '<div class="hist-grid">' + games.map((g) => {
+        const isTreeky = g.gameType === 'treeky';
+        const icon = isTreeky ? '🎴' : '♛';
+        const type = isTreeky ? 'Treeky' : 'Black Queen';
+        const result = g.won ? 'Victory'
+          : (g.yourRank ? ordinal(g.yourRank) + ' place' : 'Finished');
+        const cls = g.won ? ' won' : (g.yourRank === 2 ? ' silver' : (g.yourRank === 3 ? ' bronze' : ''));
+        const badge = g.won ? '<span class="hc-badge win">WON</span>'
+          : (g.yourRank ? '<span class="hc-badge rank">#' + g.yourRank + '</span>' : '');
+        const score = (g.yourScore == null) ? '' :
+          '<span class="hc-chip">' + g.yourScore + ' pts</span>';
+        const code = g.code ? '<span class="hc-chip ghost">#' + esc(g.code) + '</span>' : '';
+        return '<button class="hist-card' + cls + '" data-game="' + esc(g.id) + '">' +
+          '<div class="hc-top"><span class="hc-game"><span class="hc-icon">' + icon + '</span>' + type + '</span>' + badge + '</div>' +
+          '<div class="hc-result">' + result + '</div>' +
+          '<div class="hc-meta">' + score + code +
+            '<span class="hc-when">' + esc(relTime(g.endedAt)) + '</span></div>' +
+          '</button>';
+      }).join('') + '</div>';
+
+      list.innerHTML = stats + cards;
     },
 
     async _showGameDetail(id) {
@@ -158,12 +216,17 @@
       const meP = players.find((p) => p.userId && this.user && p.userId === this.user.id);
       const mySeat = meP ? meP.seat : null;
 
+      const medal = { 1: '🥇', 2: '🥈', 3: '🥉' };
       const playersHtml = players.slice().sort((a, b) => (a.rank || 9) - (b.rank || 9)).map((p) => {
         const tag = p.seat === game.winnerSeat ? ' winner' : (p.seat === loserSeat ? ' loser' : '');
-        return '<div class="detail-player' + tag + '">' +
-          '<span>' + (p.rank ? '#' + p.rank + ' ' : '') + esc(p.name) + (p.isBot ? ' 🤖' : '') +
+        const mine = (mySeat != null && p.seat === mySeat) ? ' me' : '';
+        const rankMark = p.rank ? (medal[p.rank] || ('#' + p.rank)) : '·';
+        return '<div class="detail-player' + tag + mine + '">' +
+          '<span class="dp-rank">' + rankMark + '</span>' +
+          '<span class="dp-name">' + esc(p.name) + (p.isBot ? ' 🤖' : '') +
+          (mine ? ' <span class="me-tag">you</span>' : '') +
           (p.seat === loserSeat ? ' <span class="loser-tag">last</span>' : '') + '</span>' +
-          '<span>' + (p.finalScore == null ? '' : p.finalScore + ' pts') + '</span></div>';
+          '<span class="dp-score">' + (p.finalScore == null ? '' : p.finalScore + ' pts') + '</span></div>';
       }).join('');
 
       let roundsHtml = '';
@@ -175,9 +238,16 @@
             '</tr>').join('') + '</tbody></table></div>';
       }
       const type = game.gameType === 'treeky' ? '🎴 Treeky' : '♛ Black Queen';
-      box.innerHTML = '<h3 class="detail-title">' + type + ' · ' + esc(new Date(game.endedAt).toLocaleString()) + '</h3>' +
-        '<div class="detail-players">' + playersHtml + '</div>' + roundsHtml +
+      box.innerHTML = '<div class="detail-head">' +
+          '<h3 class="detail-title">' + type + '</h3>' +
+          '<span class="detail-date">' + esc(new Date(game.endedAt).toLocaleString()) + '</span>' +
+          '<button class="detail-close" data-close>✕</button>' +
+        '</div>' +
+        '<div class="detail-sub">Final standings</div>' +
+        '<div class="detail-players">' + playersHtml + '</div>' +
+        (roundsHtml ? '<div class="detail-sub">Round by round</div>' + roundsHtml : '') +
         this._coachingHtml(game, players, rounds, mySeat, loserSeat);
+      box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     },
 
     // "Learn from this game" — coach the viewing player (or the loser) on what
