@@ -514,6 +514,46 @@
     }, delay);
   }
 
+  /* ---- Cross-device rejoin -------------------------------------------------
+   * The lobby knows which room holds a seat for the logged-in account
+   * (GET ?need=mine, resolved from the session cookie). If it's a DIFFERENT
+   * device than the one that joined (no local token for that room), offer a
+   * one-tap "Rejoin your game" on the menu. The server hands the seat over on
+   * a token-less resume matched by userId — see party/main.js 'resume'.       */
+  let rejoinCode = null;
+
+  function checkActiveGame() {
+    const row = $('#rejoinRow');
+    if (!row) return;
+    if (location.protocol !== 'http:' && location.protocol !== 'https:') return;
+    fetch('/parties/lobby/lobby?need=mine')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((m) => {
+        // Same-device sessions resume automatically via the stored token —
+        // only offer the button when this device has no claim on that room.
+        if (m && m.code && !(session && session.code === m.code)) {
+          rejoinCode = m.code;
+          $('#btnRejoin').textContent = '⟳ Rejoin your game (' + m.code + ')';
+          row.style.display = '';
+        } else {
+          rejoinCode = null;
+          row.style.display = 'none';
+        }
+      })
+      .catch(() => {});
+  }
+
+  function rejoinActiveGame() {
+    if (!rejoinCode) return;
+    const code = rejoinCode;
+    rejoinCode = null;
+    $('#rejoinRow').style.display = 'none';
+    ui.setReconnecting(true);
+    connectTo(code)
+      .then(() => net.send({ t: 'resume' }))   // token-less: server matches by account
+      .catch(() => { ui.setReconnecting(false); ui.toast('Could not reach the game server.'); });
+  }
+
   // On page load: walk straight back into whatever game we were in.
   function attemptResume() {
     // Multiplayer session takes priority (it needs the server).
@@ -544,6 +584,8 @@
       reconnectAttempts = 0;
       if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
       ui.setReconnecting(false);
+      rejoinCode = null;
+      const rj = $('#rejoinRow'); if (rj) rj.style.display = 'none';
       ui.setNetStatus('online', net.latencyMs);
       // tell the table about preferences they can see (🛡️ = taunts muted)
       net.send({ t: 'prefs', attacksMuted: BQ.Prefs.get().attacks === false });
@@ -563,6 +605,23 @@
       ui.setReconnecting(false);
       if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
       if (isMultiplayer) { ui.toast('That game has ended — returning to menu.'); isMultiplayer = false; netEngine = null; }
+      ui.show('menu');
+      // A stale local token (seat handed to another device, then handed back)
+      // can still rejoin by account — offer the button if a seat exists.
+      checkActiveGame();
+    });
+    // Another of MY devices took this seat over (account hand-off). Let go
+    // cleanly: no reconnect fight — the other device owns the seat now.
+    net.on('takenOver', () => {
+      clearSession();
+      if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+      reconnectAttempts = 0;
+      ui.setReconnecting(false);
+      if (BQ.Voice) BQ.Voice.leave();
+      netEngine = null; isMultiplayer = false;
+      document.body.classList.remove('mp');
+      BQ.Sound.stopMusic();
+      ui.toast('You rejoined this game from another device.');
       ui.show('menu');
     });
     net.on('lobby', (m) => {
@@ -1305,6 +1364,7 @@
     // Menu
     $('#btnPlay').addEventListener('click', () => { BQ.Sound.unlock(); BQ.Sound.click(); ui.show('setup'); $('#playerName').focus(); });
     $('#btnMulti').addEventListener('click', () => { BQ.Sound.unlock(); BQ.Sound.click(); openMultiplayer(); });
+    $('#btnRejoin').addEventListener('click', () => { BQ.Sound.unlock(); BQ.Sound.click(); rejoinActiveGame(); });
     $('#btnRules').addEventListener('click', () => { BQ.Sound.click(); $('#rulesModal').innerHTML = rulesHtml(); ui.openOverlay('rulesOverlay'); });
     $('#btnSettingsMenu').addEventListener('click', () => { BQ.Sound.click(); openMainSettings(); });
     $('#btnLookMenu').addEventListener('click', () => { BQ.Sound.click(); buildAppearanceForm(); ui.openOverlay('lookOverlay'); });
@@ -1685,6 +1745,9 @@
         const pn = $('#playerName'); if (pn) pn.value = myName;
         ui.show('menu');
         attemptResume();
+        // Seat held in a game joined from ANOTHER device? Offer a one-tap
+        // rejoin on the menu (no-op when the local token already resumed).
+        checkActiveGame();
       },
     });
     BQ.Account.boot();

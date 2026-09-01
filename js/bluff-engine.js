@@ -362,6 +362,54 @@
       this._botChallengeTimers.forEach((t) => clearTimeout(t));
       this._botChallengeTimers = [];
     }
+
+    /* ---- persistence (server restore / refresh) — mirrors TreekyEngine ----- */
+    snapshot() {
+      const card = (c) => (c ? { rank: c.rank, suit: c.suit, id: c.id } : null);
+      return {
+        v: 1, game: 'bluff', rules: this.rules,
+        phase: this.phase, dealerIndex: this.dealerIndex,
+        currentPlayerIndex: this.currentPlayerIndex,
+        pile: this.pile.map(card),
+        claim: this.claim ? {
+          by: this.claim.by, rank: this.claim.rank, count: this.claim.count,
+          cards: this.claim.cards.map(card),
+        } : null,
+        challengeDecided: [...this.challengeDecided],
+        finishedOrder: this.finishedOrder.slice(),
+        pendingFinish: !!this._pendingFinish,
+        lastResolved: this._lastResolved || null,
+        lastGameOver: this._lastGameOver || null,
+        players: this.players.map((p) => ({
+          index: p.index, name: p.name, isHuman: p.isHuman,
+          hand: p.hand.map(card), finished: p.finished, finishRank: p.finishRank,
+        })),
+      };
+    }
+
+    static fromSnapshot(data) {
+      const e = new BluffEngine(data.rules);
+      e.phase = data.phase;
+      e.dealerIndex = data.dealerIndex;
+      e.currentPlayerIndex = data.currentPlayerIndex;
+      e.pile = (data.pile || []).map((c) => BQ.cardFrom(c));
+      e.claim = data.claim ? {
+        by: data.claim.by, rank: data.claim.rank, count: data.claim.count,
+        cards: (data.claim.cards || []).map((c) => BQ.cardFrom(c)),
+      } : null;
+      e.challengeDecided = new Set(data.challengeDecided || []);
+      e.finishedOrder = data.finishedOrder || [];
+      e._pendingFinish = !!data.pendingFinish;
+      e._lastResolved = data.lastResolved || null;
+      e._lastGameOver = data.lastGameOver || null;
+      e.players = (data.players || []).map((pd) => {
+        const p = new BluffPlayer(pd.index, pd.name, pd.isHuman);
+        p.hand = (pd.hand || []).map((c) => BQ.cardFrom(c));
+        p.finished = !!pd.finished; p.finishRank = pd.finishRank || 0;
+        return p;
+      });
+      return e;
+    }
   }
 
   BQ.BluffEngine = BluffEngine;

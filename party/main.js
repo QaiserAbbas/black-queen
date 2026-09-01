@@ -16,6 +16,16 @@
  * hibernation), so the per-seat setTimeout bot/grace timers behave exactly like
  * the Node server. When the LAST socket closes we arm a Durable Object alarm to
  * expire the room after the reconnect grace (see onAlarm).
+ *
+ * Persistence: Cloudflare can evict a Durable Object AT ANY TIME — a deploy,
+ * runtime maintenance, memory pressure — even while WebSockets are open. The
+ * authoritative engine lives in memory, so an eviction used to erase the game
+ * mid-session: every client's `resume` hit a blank object and got "room-gone",
+ * dumping the whole table back to the menu with no way to restart. So the FULL
+ * room state (seats, rules, engine snapshot) is now written to Durable Object
+ * storage on every meaningful change (see save()) and rehydrated in the
+ * constructor (restore(), inside blockConcurrencyWhile) — a reconnecting
+ * player's token finds their seat again and play continues where it stopped.
  * ===========================================================================*/
 
 import { Server, getServerByName } from "partyserver";
@@ -64,6 +74,123 @@ export class Main extends Server {
 
     // connId -> { seat, name, lastChatAt, userId }
     this.clients = new Map();
+
+    // Rehydrate a room that was evicted mid-game BEFORE any request/alarm is
+    // delivered (blockConcurrencyWhile holds the input gate while we load).
+    this.ctx.blockConcurrencyWhile(() => this.restore().catch(() => {}));
+  }
+
+  /* =============================================================================
+   * Persistence — survive Durable Object eviction (deploys, maintenance, memory
+   * pressure). The room's full state is saved on every meaningful change and
+   * reloaded when the object comes back, so a mid-session eviction looks to the
+   * players like a brief reconnect instead of a dead game.
+   * ===========================================================================*/
+  serializeRoom() {
+    return {
+      v: 1,
+      created: this.created,
+      gameType: this.gameType,
+      rules: this.rules,
+      started: this.started,
+      hostToken: this.hostToken,
+      gameDbId: this.gameDbId,
+      lastRoundEnd: this.lastRoundEnd,
+      lastGameOver: this.lastGameOver,
+      ready: [...this.ready],
+      paused: this.paused,
+      vacancy: this.vacancy,
+      seats: this.seats.map((s) => ({
+        name: s.name, isBot: !!s.isBot, token: s.token || null,
+        open: !!s.open, botFill: !!s.botFill,
+        disconnected: !!s.disconnected, connected: !!s.connId,
+        userId: s.userId || null,
+        attacksMuted: !!s.attacksMuted, attackUsed: !!s.attackUsed,
+      })),
+      engine: this.engine ? this.engine.snapshot() : null,
+    };
+  }
+
+  // Fire-and-forget: gameplay never blocks on storage. The Durable Object
+  // output gate still holds outbound messages until the write commits, so a
+  // confirmed move is never lost to a crash that follows it.
+  save() {
+    if (!this.created) return;
+    try { this.ctx.storage.put("room", this.serializeRoom()).catch(() => {}); } catch (_) {}
+  }
+
+  clearSaved() {
+    return this.ctx.storage.delete("room").catch(() => {});
+  }
+
+  async restore() {
+    const data = await this.ctx.storage.get("room");
+    if (!data || !data.created || !data.rules) return;
+
+    this.created = true;
+    this.gameType = data.gameType || "blackqueen";
+    this.rules = data.rules;
+    this.started = !!data.started;
+    this.hostToken = data.hostToken || null;
+    this.hostConnId = null;                      // no live sockets survive an eviction
+    this.gameDbId = data.gameDbId || null;
+    this.lastRoundEnd = data.lastRoundEnd || null;
+    this.lastGameOver = data.lastGameOver || null;
+    this.ready = new Set(data.ready || []);
+    this.paused = !!data.paused;
+    this.vacancy = data.vacancy || null;
+
+    this.seats = (data.seats || []).map((sd) => {
+      const seat = {
+        connId: null, name: sd.name, isBot: sd.isBot, token: sd.token,
+        open: sd.open, botFill: sd.botFill, disconnected: sd.disconnected,
+        userId: sd.userId, attacksMuted: sd.attacksMuted, attackUsed: sd.attackUsed,
+      };
+      // A seat that was live (or already awaiting reconnect) when the object
+      // died: hold it for that player, exactly like an unintentional drop.
+      if (sd.token && (sd.connected || sd.disconnected)) {
+        seat.disconnected = true;
+        if (this.started) seat.isBot = true;     // matches the mid-game drop path
+      }
+      return seat;
+    });
+
+    if (data.engine) {
+      if (this.gameType === "treeky") this.engine = BQ.TreekyEngine.fromSnapshot(data.engine);
+      else if (this.gameType === "bluff") this.engine = BQ.BluffEngine.fromSnapshot(data.engine);
+      else this.engine = BQ.GameEngine.fromSnapshot(data.engine);
+      if (this.gameType === "treeky") this.wireTreekyEngine();
+      else if (this.gameType === "bluff") this.wireBluffEngine();
+      else this.wireEngine();
+    }
+
+    if (this.started) {
+      // Freeze each awaited player's turn briefly, then let a bot cover — the
+      // same grace an ordinary disconnect gets.
+      this.seats.forEach((s, i) => {
+        if (s.disconnected && !s.botFill) this.beginDisconnectGrace(i);
+      });
+      // Nobody may come back at all — expire the room after the usual grace.
+      // (A reconnect clears this alarm in onConnect, as always.)
+      this.ctx.storage.setAlarm(Date.now() + RECONNECT_GRACE_MS).catch(() => {});
+    }
+  }
+
+  // Restart whatever the engine is waiting on when a player attaches to a
+  // restored room (bot turns and doubt windows are setTimeout-driven, and all
+  // timers died with the previous instance).
+  kickEngine() {
+    const e = this.engine;
+    if (!e || this.paused) return;
+    if ((e.phase === "awaitHuman" || (this.gameType === "treeky" && e.phase === "awaitSuit")) &&
+        this.seatIsBot(e.currentPlayerIndex)) {
+      this.scheduleBot(e.currentPlayerIndex);
+    } else if (this.gameType === "bluff" && e.phase === "awaitChallenge") {
+      this.scheduleBluffWindow();
+    } else if (this.gameType === "blackqueen" && e.phase === "awaitReshuffle" &&
+               this.seatIsBot(e.reshuffleSeat)) {
+      e.beginPlay();
+    }
   }
 
   /* ---- transport helpers ------------------------------------------------- */
@@ -89,6 +216,9 @@ export class Main extends Server {
           started: this.started,
           joinable: this.isJoinable(),
           live: this.started && !!this.engine,
+          // Logged-in users holding seats — lets the lobby answer "which room
+          // is MY game in?" for cross-device rejoin (GET ?need=mine).
+          users: this.seats.map((s) => s.userId).filter((u) => u != null),
         }),
       });
     } catch (_) { /* lobby is best-effort */ }
@@ -507,7 +637,34 @@ export class Main extends Server {
       }
       case "resume": {
         if (!this.created) return this.send(conn, { t: "resumeFail", reason: "room-gone" });
-        const seatIdx = this.seats.findIndex((s) => s.token && s.token === msg.token);
+        let seatIdx = this.seats.findIndex((s) => s.token && msg.token && s.token === msg.token);
+
+        // Device hand-off: a resume WITHOUT a token from a logged-in user who
+        // holds a seat here (started on the phone, reopening on the desktop).
+        // Token-carrying resumes never fall through to this — otherwise a stale
+        // token on the old device could steal the seat straight back.
+        if (seatIdx < 0 && !msg.token && meta.userId != null) {
+          seatIdx = this.seats.findIndex((s) => s.token && s.userId != null && s.userId === meta.userId);
+          if (seatIdx >= 0) {
+            const s = this.seats[seatIdx];
+            // The other device may still be connected — hand the seat over
+            // cleanly: tell it, detach it from the seat, and drop its socket.
+            if (s.connId) {
+              const old = this.connOf(s.connId);
+              if (old) {
+                const om = this.meta(old);
+                if (om) om.seat = -1;
+                this.send(old, { t: "takenOver", code: this.name });
+                try { old.close(); } catch (_) {}
+              }
+              s.connId = null;
+            }
+            // Rotate the seat token so only THIS device can resume from now on.
+            const wasHost = this.hostToken && this.hostToken === s.token;
+            s.token = this.makeToken();
+            if (wasHost) this.hostToken = s.token;
+          }
+        }
         if (seatIdx < 0) return this.send(conn, { t: "resumeFail", reason: "seat-gone" });
 
         const seat = this.seats[seatIdx];
@@ -543,6 +700,9 @@ export class Main extends Server {
             this.send(conn, { t: "paused", paused: true, name: this.vacancy && this.vacancy.name, code: this.name });
             if (isHost && this.vacancy) this.promptHostVacancy();
           }
+          // A restored (or long-idle) room has no live timers — if the engine is
+          // waiting on a bot seat or a doubt window, set it moving again.
+          this.kickEngine();
         } else {
           this.broadcastLobby();
           this.broadcastPresence({ kind: "back", name: seat.name });
@@ -699,6 +859,7 @@ export class Main extends Server {
       }
       case "leave": this.dropClient(conn, true); break;
     }
+    this.save();
   }
 
   // Re-point every connected client at its (possibly shifted) seat index.
@@ -1196,6 +1357,10 @@ export class Main extends Server {
   }
 
   broadcast(hint) {
+    // Every engine event funnels through here (all three wire*Engine handlers
+    // broadcast), so this is the one choke point that captures bot-driven and
+    // timer-driven state changes too.
+    this.save();
     if (this.gameType === "treeky") return this.treekyBroadcast(hint);
     if (this.gameType === "bluff") return this.bluffBroadcast(hint);
     this.seats.forEach((s, seat) => {
@@ -1291,6 +1456,7 @@ export class Main extends Server {
       if (!this.started) {
         this.clearAllTimers();
         this.created = false; this.seats = []; this.engine = null;
+        await this.clearSaved();
         // Awaited: the object may evict right after this handler returns, so the
         // "room gone" report must land before then (otherwise the lobby keeps a
         // stale joinable entry pointing at a dead room until its TTL sweep).
@@ -1305,6 +1471,7 @@ export class Main extends Server {
       this.reportLobby();
     } else if (!this.started) { this.broadcastLobby(); this.reportLobby(); }
     else this.broadcast({ name: "sync" });
+    this.save();
   }
 
   clearAllTimers() {
@@ -1323,6 +1490,7 @@ export class Main extends Server {
     if (anyHuman) return;
     this.clearAllTimers();
     this.created = false; this.started = false; this.engine = null; this.seats = [];
+    await this.clearSaved();
     await this.reportLobby(true);
   }
 }

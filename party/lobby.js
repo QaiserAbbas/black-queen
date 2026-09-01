@@ -9,6 +9,7 @@
  *   • allocates a unique, unused 4-letter code for a new room      (GET ?need=create)
  *   • answers "give me an open room to join"                       (GET ?need=join)
  *   • answers "give me a live game to watch"                       (GET ?need=spectate)
+ *   • answers "which room holds MY seat?" (cross-device rejoin)    (GET ?need=mine)
  *   • lists everything (debug / future room browser)               (GET ?need=list)
  *
  * Each Main room reports its state here on every meaningful change (created,
@@ -18,6 +19,7 @@
  * ===========================================================================*/
 
 import { Server } from "partyserver";
+import { getUser } from "./api.js";
 
 // Unambiguous alphabet (no 0/O/1/I) — mirrors the old makeCode().
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -82,6 +84,7 @@ export class Lobby extends Server {
           started: !!body.started,
           joinable: !!body.joinable,
           live: !!body.live,
+          users: Array.isArray(body.users) ? body.users : [],
           reserved: false,
           ts: Date.now(),
         });
@@ -109,6 +112,20 @@ export class Lobby extends Server {
     if (need === "spectate") {
       const hit = [...this.rooms].find(([, v]) => v.live);
       return hit ? json({ code: hit[0] }) : json({ error: "none" }, 404);
+    }
+
+    // Cross-device rejoin: which room is the logged-in user seated in? The
+    // session cookie rides along on the same-origin fetch; resolve it against
+    // D1 and scan the registry for a room holding that user's seat.
+    if (need === "mine") {
+      if (!this.env.DB) return json({ error: "none" }, 404);
+      const user = await getUser(req, this.env).catch(() => null);
+      if (!user) return json({ error: "unauthorized" }, 401);
+      const hit = [...this.rooms].find(([, v]) =>
+        !v.reserved && Array.isArray(v.users) && v.users.includes(user.id));
+      return hit
+        ? json({ code: hit[0], started: !!hit[1].started, live: !!hit[1].live })
+        : json({ error: "none" }, 404);
     }
 
     if (need === "list") {

@@ -649,6 +649,11 @@
         trickLog: this.trickLog,
         lastRoundEnd: this._lastRoundEnd || null,
         lastGameOver: this._lastGameOver || null,
+        // Reshuffle decision in flight: the shuffled-but-undealt deck must
+        // survive too, or a restore mid-offer would have no cards to deal.
+        reshuffleRemaining: this.reshuffleRemaining,
+        reshuffleSeat: this.reshuffleSeat,
+        deck: (this.phase === 'awaitReshuffle' && this._deck) ? this._deck.map(card) : null,
         players: this.players.map((p) => ({
           index: p.index, name: p.name, isHuman: p.isHuman,
           hand: p.hand.map(card),
@@ -678,6 +683,9 @@
       e.currentTrick = (data.currentTrick || []).map((t) => ({
         playerIndex: t.playerIndex, card: new BQ.Card(t.card.rank, t.card.suit),
       }));
+      e.reshuffleRemaining = data.reshuffleRemaining || 0;
+      e.reshuffleSeat = (data.reshuffleSeat == null) ? -1 : data.reshuffleSeat;
+      if (data.deck) e._deck = data.deck.map((c) => new BQ.Card(c.rank, c.suit));
       e.players = (data.players || []).map((pd) => {
         const p = new BQ.Player(pd.index, pd.name, pd.isHuman);
         p.hand = (pd.hand || []).map((c) => new BQ.Card(c.rank, c.suit));
