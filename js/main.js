@@ -528,6 +528,7 @@
         setControlsEnabled(true);
       })
       .catch(() => { setMpStatus('Could not reach the game server. Refresh and try again.', 'bad'); setControlsEnabled(true); });
+    startRoomsPoll();
   }
 
   // Open (or reuse) a socket bound to a specific room code. On PartyKit the room
@@ -644,6 +645,101 @@
         renderUnfinished();
       })
       .catch(() => {});
+  }
+
+  /* ---- Active rooms (multiplayer screen) -----------------------------------
+   * Every room the lobby knows about (GET ?need=rooms), games in progress
+   * first. Join / Watch put the code in the box and reuse joinRoom / watchRoom
+   * (same name handling and errors as typing it); a room holding our own seat
+   * offers Rejoin instead. Polled while the multiplayer screen is open.     */
+  const ROOMS_POLL_MS = 15000;
+  const ROOM_STATUS = {
+    playing: ['live', 'Playing'], waiting: ['wait', 'Waiting for players'],
+    idle: ['idle', 'Idle'], finished: ['idle', 'Game over'],
+  };
+  let roomsTimer = null;
+  let roomsLoaded = false;         // a list has rendered (keep it through a blip)
+
+  function renderRooms(rooms, err) {
+    const list = $('#roomsList'), count = $('#roomsCount');
+    if (!list || !count) return;
+    if (err) {
+      if (roomsLoaded) return;
+      count.textContent = '';
+      list.innerHTML = '<div class="rooms-empty">' + escHtml(err) + '</div>';
+      return;
+    }
+    roomsLoaded = true;
+    const playing = rooms.filter((r) => r.status === 'playing').length;
+    count.textContent = rooms.length ? '· ' + playing + ' playing · ' + rooms.length + ' total' : '';
+    if (!rooms.length) {
+      list.innerHTML = '<div class="rooms-empty">No rooms right now — create one above.</div>';
+      return;
+    }
+    list.innerHTML = rooms.map((r) => {
+      const code = escHtml(r.code);
+      const label = GAME_LABEL[r.gameType] || GAME_LABEL.blackqueen;
+      const st = ROOM_STATUS[r.status] || ROOM_STATUS.playing;
+      const players = Array.isArray(r.players) ? r.players : [];
+      const nKind = (k) => players.filter((p) => p.kind === k).length;
+      const people = players.filter((p) => p.kind === 'human' || p.kind === 'away')
+        .map((p) => escHtml(p.name) + (p.kind === 'away' ? ' (away)' : ''));
+      const bots = nKind('bot'), open = nKind('open');
+      const sub = [];
+      if (people.length) sub.push(people.join(', '));
+      if (bots) sub.push(bots + (bots === 1 ? ' bot' : ' bots'));
+      if (!r.started && r.seatCap) sub.push(players.length + '/' + r.seatCap + ' seats');
+      if (open) sub.push(open + (open === 1 ? ' open seat' : ' open seats'));
+      if (r.round) sub.push('Round ' + r.round);
+      // Watchers only mean something at a running table (an idle room's last
+      // report may predate an eviction that dropped them).
+      if (r.spectators && r.status === 'playing') sub.push('👁 ' + r.spectators);
+      const btn = (act, text, ghost) =>
+        '<button class="btn' + (ghost ? ' ghost' : '') + '" data-room="' + code + '" data-act="' + act + '">' + text + '</button>';
+      let actions = '';
+      if (r.mine) actions = btn('rejoin', 'Rejoin');
+      else {
+        if (r.joinable) actions += btn('join', 'Join');
+        if (r.live && r.status !== 'finished') actions += btn('watch', '👁 Watch', true);
+      }
+      return '<div class="unfinished-row' + (r.status === 'idle' || r.status === 'finished' ? ' dim' : '') + '">' +
+        '<span class="unfinished-icon">' + label[0] + '</span>' +
+        '<div class="unfinished-main">' +
+          '<div class="unfinished-title">' + escHtml(label[1]) +
+            ' <span class="unfinished-code">#' + code + '</span>' +
+            '<span class="unfinished-chip ' + st[0] + '">' + st[1] + '</span>' +
+            (r.mine ? '<span class="unfinished-chip local">your seat</span>' : '') + '</div>' +
+          (sub.length ? '<div class="unfinished-sub">' + sub.join(' · ') + '</div>' : '') +
+        '</div>' +
+        (actions ? '<div class="rooms-actions">' + actions + '</div>' : '') +
+        '</div>';
+    }).join('');
+  }
+
+  function refreshRooms() {
+    const box = $('#roomsBox');
+    if (location.protocol !== 'http:' && location.protocol !== 'https:') { if (box) box.style.display = 'none'; return; }
+    fetch('/parties/lobby/lobby?need=rooms')
+      .then((r) => {
+        if (r.status === 401) throw new Error('auth');
+        if (!r.ok) throw new Error('down');
+        return r.json();
+      })
+      .then((m) => renderRooms((m && Array.isArray(m.rooms)) ? m.rooms : []))
+      .catch((e) => renderRooms(null, e && e.message === 'auth'
+        ? 'Log in to see active rooms.' : 'Could not load active rooms.'));
+  }
+
+  function stopRoomsPoll() { if (roomsTimer) { clearInterval(roomsTimer); roomsTimer = null; } }
+  function startRoomsPoll() {
+    stopRoomsPoll();
+    roomsLoaded = false;
+    refreshRooms();
+    roomsTimer = setInterval(() => {
+      const mp = $('#mp');
+      if (!mp || !mp.classList.contains('active')) { stopRoomsPoll(); return; }
+      if (document.visibilityState === 'visible') refreshRooms();
+    }, ROOMS_POLL_MS);
   }
 
   // Walk back into a room from the panel (or auto, on page load).
@@ -1546,6 +1642,17 @@
     $('#btnJoin').addEventListener('click', () => { BQ.Sound.click(); joinRoom(); });
     $('#btnWatch').addEventListener('click', () => { BQ.Sound.click(); watchRoom(); });
     $('#btnMpBack').addEventListener('click', () => { BQ.Sound.click(); ui.show('menu'); });
+    // Active rooms: one tap joins / watches / rejoins that code.
+    $('#roomsList').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-room]');
+      if (!b || b.disabled) return;
+      BQ.Sound.unlock(); BQ.Sound.click();
+      const code = b.dataset.room;
+      if (b.dataset.act === 'rejoin') { rejoinRoom(code); return; }
+      $('#mpCode').value = code;
+      if (b.dataset.act === 'watch') watchRoom(); else joinRoom();
+    });
+    $('#btnRoomsRefresh').addEventListener('click', () => { BQ.Sound.click(); refreshRooms(); });
     $('#btnLobbyStart').addEventListener('click', () => {
       BQ.Sound.click();
       // Treeky / Bluff seats are symmetric (no dealing-order arrangement) — just start.

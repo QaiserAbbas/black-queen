@@ -2191,3 +2191,19 @@ body.mobile .hand-zoom { bottom: calc(env(safe-area-inset-bottom) + 64px); }
   .unfinished-row { flex-wrap: wrap; }
   .unfinished-row .btn { flex: 1; }
 }
+
+/* ---- multiplayer: active rooms browser (reuses the unfinished-games card) - */
+/* The list can make the screen taller than the viewport: scroll instead of
+   clipping (`safe` keeps the top reachable while centred). */
+#mp.screen { overflow-y: auto; justify-content: safe center; padding: 1rem 16px; }
+.rooms { margin: 0.2rem auto 0; z-index: 2; flex-shrink: 0; }
+.rooms-count { color: #aebfb4; font-weight: 400; font-size: 0.8rem; }
+.rooms-list { max-height: min(36vh, 320px); overflow-y: auto; }
+.rooms-empty { color: #aebfb4; font-size: 0.85rem; padding: 0.3rem 0.1rem; }
+.rooms-actions { display: flex; gap: 0.4rem; }
+.unfinished-row.dim { opacity: 0.72; }
+.unfinished-chip.wait { border-color: rgba(120,180,255,0.5); color: #b5d4ff; }
+.unfinished-chip.idle { color: #aebfb4; }
+@media (max-width: 520px) {
+  .rooms-actions { flex: 1 1 100%; }
+}

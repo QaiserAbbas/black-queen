@@ -101,6 +101,16 @@
         <button class="btn ghost" id="btnMpBack">Back</button>
       </div>
       <p id="mpError" style="color:#ff9b8a;margin-top:1rem;min-height:1.2em;z-index:2"></p>
+      <!-- Active rooms: every room on the server right now (lobby ?need=rooms),
+           games in progress first — Join / Watch / Rejoin with one tap instead
+           of typing a code. Refreshed while this screen is open. -->
+      <div class="unfinished rooms" id="roomsBox">
+        <div class="unfinished-head">
+          <span>🟢 Active rooms <span class="rooms-count" id="roomsCount"></span></span>
+          <button class="unfinished-refresh" id="btnRoomsRefresh" title="Refresh" aria-label="Refresh active rooms">↻</button>
+        </div>
+        <div class="rooms-list" id="roomsList"><div class="rooms-empty">Loading…</div></div>
+      </div>
     </section>
 
     <!-- ===================== LOBBY ===================== -->

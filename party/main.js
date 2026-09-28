@@ -85,6 +85,10 @@ const DISCONNECT_TURN_GRACE_MS = 15 * 1000;
 // Coalesce player backups: many engine events fire within a second of each
 // other (cardPlayed → trickWon → turn); one sealed blob per burst is plenty.
 const BACKUP_DEBOUNCE_MS = 3000;
+// While a game is being played, re-report to the lobby at least this often so
+// its "Active rooms" browser can tell a running table from a silent one (the
+// lobby shows a room quiet for 3x this long as idle — STALE_MS in lobby.js).
+const LOBBY_REFRESH_MS = 5 * 60 * 1000;
 
 export class Main extends Server {
   // Keep the object in memory (and its setTimeout bot/grace timers alive) while
@@ -118,6 +122,7 @@ export class Main extends Server {
     this.holdUntil = null;        // in-progress room with nobody connected: expiry (ms)
     this.backupTimer = null;      // pending host-backup send (debounced)
     this._backupKeyP = null;      // cached AES key import (Promise) from the Lobby
+    this.lastLobbyReport = 0;     // ms of the last reportLobby (heartbeat pacing)
 
     // connId -> { seat, name, lastChatAt, userId }
     this.clients = new Map();
@@ -385,25 +390,39 @@ export class Main extends Server {
     return Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
   }
 
-  // Tell the lobby registry whether this room is open / live (or gone).
+  // Tell the lobby registry whether this room is open / live (or gone). An
+  // RPC, not an HTTP POST: the lobby's HTTP face is public, its registry isn't.
   async reportLobby(removed) {
+    this.lastLobbyReport = Date.now();
     try {
       const stub = await getServerByName(this.env.Lobby, "lobby");
-      await stub.fetch("https://lobby/report", {
-        method: "POST",
-        body: JSON.stringify({
-          code: this.name,
-          removed: !!removed,
-          gameType: this.gameType,
-          started: this.started,
-          joinable: this.isJoinable(),
-          live: this.started && !!this.engine,
-          // Logged-in users holding seats — lets the lobby answer "which room
-          // is MY game in?" for cross-device rejoin (GET ?need=mine).
-          users: this.seats.map((s) => s.userId).filter((u) => u != null),
-        }),
+      await stub.report({
+        code: this.name,
+        removed: !!removed,
+        gameType: this.gameType,
+        started: this.started,
+        joinable: this.isJoinable(),
+        live: this.started && !!this.engine,
+        // Logged-in users holding seats — lets the lobby answer "which room
+        // is MY game in?" for cross-device rejoin (GET ?need=mine).
+        users: this.seats.map((s) => s.userId).filter((u) => u != null),
+        // Public summary for the "Active rooms" browser (GET ?need=rooms).
+        seatCap: (this.created && this.rules) ? this.seatCap() : 0,
+        players: this.seats.map((s) => ({ name: s.name, kind: this.seatKind(s) })),
+        spectators: [...this.spectators].filter((id) => this.connOf(id)).length,
+        round: (this.gameType === "blackqueen" && this.engine) ? this.engine.round : null,
+        over: !!(this.engine && this.engine.phase === "gameOver"),
       });
     } catch (_) { /* lobby is best-effort */ }
+  }
+
+  // How a seat looks from outside the room: a connected player, a player who
+  // dropped and is being waited for, a seat opened for anyone, or a bot.
+  seatKind(s) {
+    if (s.connId && this.connOf(s.connId)) return "human";
+    if (s.open) return "open";
+    if (s.disconnected || !s.isBot) return "away";
+    return "bot";
   }
 
   isJoinable() {
@@ -810,6 +829,7 @@ export class Main extends Server {
         meta.name = (msg.name || "Spectator").slice(0, 14);
         this.spectators.add(conn.id);
         this.send(conn, { t: "spectating", code: this.name });
+        this.reportLobby();
         if (this.started && this.engine) {
           const e = this.engine;
           const snap = () => (this.gameType === "treeky" ? this.treekySpectatorSnapshot()
@@ -1586,6 +1606,12 @@ export class Main extends Server {
     // broadcast), so this is the one choke point that captures bot-driven and
     // timer-driven state changes too.
     this.save();
+    // Keep the lobby's room-browser entry current: a new round or game over
+    // reports at once, ordinary play at most every LOBBY_REFRESH_MS.
+    const h = hint && hint.name;
+    if (h === "roundStart" || h === "gameOver" || Date.now() - this.lastLobbyReport > LOBBY_REFRESH_MS) {
+      this.reportLobby();
+    }
     if (this.gameType === "treeky") return this.treekyBroadcast(hint);
     if (this.gameType === "bluff") return this.bluffBroadcast(hint);
     this.seats.forEach((s, seat) => {
@@ -1690,13 +1716,20 @@ export class Main extends Server {
         // persisted), then expire via alarm.
         this.holdUntil = null;
         this.armHold();
+        // Awaited for the same reason as above: the room browser should show
+        // this table as idle, not playing, once everyone has gone.
+        await this.reportLobby();
       }
     } else if (this.paused && this.vacancy) {
       this.broadcastPaused(true, this.vacancy.name);
       this.promptHostVacancy();
       this.reportLobby();
     } else if (!this.started) { this.broadcastLobby(); this.reportLobby(); }
-    else this.broadcast({ name: "sync" });
+    else {
+      // Report first: broadcast's heartbeat then sees a fresh report and skips.
+      this.reportLobby();
+      this.broadcast({ name: "sync" });
+    }
     this.save();
   }
 
