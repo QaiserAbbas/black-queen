@@ -2108,6 +2108,9 @@ body.mobile .hand-zoom { bottom: calc(env(safe-area-inset-bottom) + 64px); }
 .rounds-table th, .rounds-table td { padding: 0.4rem 0.5rem; text-align: center; border-bottom: 1px solid rgba(255,255,255,0.08); }
 .rounds-table th { color: var(--acct-dim); font-weight: 600; position: sticky; top: 0; background: #07241799; }
 .rounds-table td { font-variant-numeric: tabular-nums; }
+.rounds-table .rt-score { display: block; }
+.rounds-table .rt-total { display: block; margin-top: 0.1rem; font-size: 0.68rem; font-weight: 700; color: var(--gold); opacity: 0.8; }
+.detail-sub-note { font-weight: 400; text-transform: none; letter-spacing: 0; }
 .rounds-table td:first-child, .rounds-table th:first-child { color: var(--gold); text-align: left; font-weight: 700; }
 .rounds-table tbody tr:hover td { background: rgba(255,255,255,0.03); }
 .rounds-scroll { overflow-x: auto; border-radius: 10px; border: 1px solid rgba(255,255,255,0.07); }

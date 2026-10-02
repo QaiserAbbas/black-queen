@@ -237,10 +237,21 @@
 
       let roundsHtml = '';
       if (rounds && rounds.length) {
+        // Running total per seat: trust the stored post-round totals, fall back
+        // to summing round scores for rows that lack them.
+        const run = {};
+        const num = (v) => typeof v === 'number' && isFinite(v);
         roundsHtml = '<div class="rounds-scroll"><table class="rounds-table"><thead><tr><th>Round</th>' +
           players.map((p) => '<th>' + esc(p.name) + '</th>').join('') + '</tr></thead><tbody>' +
           rounds.map((rd) => '<tr><td>' + rd.roundNo + '</td>' +
-            players.map((p) => '<td>' + ((rd.scores && rd.scores[p.seat] != null) ? rd.scores[p.seat] : '-') + '</td>').join('') +
+            players.map((p) => {
+              const sc = rd.scores && rd.scores[p.seat];
+              const tot = rd.totals && rd.totals[p.seat];
+              if (num(tot)) run[p.seat] = tot;
+              else if (num(sc)) run[p.seat] = (run[p.seat] || 0) + sc;
+              return '<td><span class="rt-score">' + (num(sc) ? sc : '-') + '</span>' +
+                (num(run[p.seat]) ? '<span class="rt-total">' + run[p.seat] + '</span>' : '') + '</td>';
+            }).join('') +
             '</tr>').join('') + '</tbody></table></div>';
       }
       const gm = GAME_META[game.gameType] || GAME_META.blackqueen;
@@ -252,7 +263,7 @@
         '</div>' +
         '<div class="detail-sub">Final standings</div>' +
         '<div class="detail-players">' + playersHtml + '</div>' +
-        (roundsHtml ? '<div class="detail-sub">Round by round</div>' + roundsHtml : '') +
+        (roundsHtml ? '<div class="detail-sub">Round by round <span class="detail-sub-note">· running total below</span></div>' + roundsHtml : '') +
         this._coachingHtml(game, players, rounds, mySeat, loserSeat);
       box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     },
