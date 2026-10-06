@@ -6,7 +6,10 @@ node_modules
 .wrangler
 .agents
 .claude
-party
+# Server source stays private — except the room class, which the host's
+# browser runs for local-network play (js/lan.js, via the import map).
+party/*
+!party/main.js
 migrations
 server.js
 render.yaml

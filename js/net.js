@@ -112,13 +112,21 @@
           if (msg.t === 'pong') {
             if (msg.ts) this.latencyMs = Date.now() - msg.ts;
           }
+          // Local-network play (js/lan.js) consumes its own control traffic.
+          if (BQ.Lan && BQ.Lan.fromCloud(msg, this)) return;
           this.emit(msg.t, msg);
         };
       });
     }
     on(t, fn) { (this.handlers[t] = this.handlers[t] || []).push(fn); return this; }
     emit(t, payload) { (this.handlers[t] || []).forEach((fn) => fn(payload)); }
-    send(obj) { if (this.ws && this.connected) this.ws.send(JSON.stringify(obj)); }
+    // While the table is played on the local network (js/lan.js), game
+    // traffic goes there instead of to the cloud room.
+    send(obj) {
+      if (BQ.Lan && BQ.Lan.route(obj)) return;
+      this.sendCloud(obj);
+    }
+    sendCloud(obj) { if (this.ws && this.connected) this.ws.send(JSON.stringify(obj)); }
   }
 
   // Ask the lobby registry (a single shared party reached over HTTP) for a room

@@ -11,6 +11,15 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <link rel="apple-touch-icon" href="icon.svg" />
   <link rel="stylesheet" href="css/styles.css" />
+  <!-- Local-network play (js/lan.js) runs the cloud's room class, party/main.js,
+       in the host's browser: its server imports resolve to browser stand-ins. -->
+  <script type="importmap">
+  { "imports": {
+      "partyserver": "./js/lan-shim.js",
+      "/party/engine.js": "./js/lan-shim.js",
+      "/party/api.js": "./js/lan-shim.js"
+  } }
+  </script>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>♛</text></svg>" />
 </head>
 <body>
@@ -472,6 +481,10 @@
           <input type="checkbox" id="prefAttacks" />
           <label for="prefAttacks">Attack taunts (🦁 💣 …) — untick to mute them on your screen</label>
         </div>
+        <div class="set-row check">
+          <input type="checkbox" id="prefLan" />
+          <label for="prefLan">Play over the local network when everyone at the table is on the same Wi-Fi (faster, keeps going if the internet drops)</label>
+        </div>
 
         <div class="close-row">
           <button class="btn ghost small" id="btnLookReset">Reset</button>
@@ -672,6 +685,7 @@
   <script src="js/bluff-ai.js"></script>
   <script src="js/net.js"></script>
   <script src="js/voice.js"></script>
+  <script src="js/lan.js"></script>
   <script src="js/fx.js"></script>
   <script src="js/sound.js"></script>
   <script src="js/ui.js"></script>

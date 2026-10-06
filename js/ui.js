@@ -184,15 +184,20 @@
       if (on) this.setNetStatus('reconnecting');
     }
 
-    /* ---- connection status pill (toolbar): online + latency / offline ----- */
+    /* ---- connection status pill (toolbar): online + latency / offline,
+     *      or "local" while the table plays over the local network ---------- */
     setNetStatus(state, rtt) {
-      const el = document.getElementById('netPill');
-      if (!el) return;
-      el.classList.remove('online', 'offline', 'reconnecting');
-      el.classList.add(state);
-      if (state === 'online') el.textContent = '🟢 ' + (rtt != null ? rtt + ' ms' : 'online');
-      else if (state === 'reconnecting') el.textContent = '🟠 reconnecting…';
-      else el.textContent = '🔴 offline';
+      ['netPill', 'tkNetPill', 'blNetPill'].forEach((id) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.classList.remove('online', 'offline', 'reconnecting', 'lan');
+        el.classList.add(state);
+        if (state === 'online') el.textContent = '🟢 ' + (rtt != null ? rtt + ' ms' : 'online');
+        else if (state === 'lan') el.textContent = '📶 local' + (rtt != null ? ' · ' + rtt + ' ms' : '');
+        else if (state === 'reconnecting') el.textContent = '🟠 reconnecting…';
+        else el.textContent = '🔴 offline';
+        el.title = state === 'lan' ? 'Playing over your local network — moves go device to device' : '';
+      });
     }
 
     /* ---- live presence: "3/4 online" chip + hover detail ------------------ */

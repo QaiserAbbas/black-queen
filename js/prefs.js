@@ -55,6 +55,7 @@
     mobileMode: 'auto',  // 'auto' | 'on' | 'off' — thumb-friendly mobile UI
     fx: true,            // big cinematic effects (queen takeover, banners, rains)
     attacks: true,       // show/hear attack taunts (lion, bomb…) — mute per player
+    lan: true,           // play over the local network when every player is on it (js/lan.js)
     smash: 'punch',      // card-smash style for ⌘/Ctrl-click (punch/fire/bolt/ice/bomb)
     smashVoice: true,    // voice shout ("Kaboom!") on smash
     // per-style shortcut: HOLD the key while clicking a card to slam with that

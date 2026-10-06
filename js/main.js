@@ -443,7 +443,7 @@
       b.querySelector('small').textContent = a.label;
       b.title = 'Play a ' + a.label + ' effect at the table';
       b.addEventListener('click', () => {
-        if (isMultiplayer && net && net.connected) {
+        if (isMultiplayer && netUp()) {
           net.send({ t: 'attack', kind: a.id });
         } else if (BQ.Prefs.get().attacks === false) {
           treekyUI.toast('Effects are muted (🎨 Appearance)');
@@ -543,6 +543,44 @@
     // go quietly into the dead one.
     if (netEngine) netEngine.client = net;
     return net.connect(code, 'main');
+  }
+
+  // Can a table message go out right now? Over the cloud socket — or over the
+  // local network while the table is played there (js/lan.js), even with the
+  // internet down.
+  function netUp() {
+    return !!net && (net.connected || !!(BQ.Lan && BQ.Lan.serving()));
+  }
+
+  // The toolbar pill: local-network play, else the cloud socket's state.
+  let lanServing = false;
+  function refreshNetPill(rtt) {
+    if (lanServing) ui.setNetStatus('lan', rtt);
+    else if (net && net.connected) ui.setNetStatus('online', net.latencyMs);
+    else ui.setNetStatus('offline');
+  }
+
+  // Local-network play (js/lan.js) tells us when the table moves on or off
+  // the local network, and when its channel to the host drops.
+  let lanShown = false;     // we told this player the table is local
+  let lanToastAt = 0;
+  function onLanState(st) {
+    lanServing = st.serving;
+    if (st.relinking && isMultiplayer) ui.setReconnecting(true);
+    else if (st.serving) ui.setReconnecting(false);
+    refreshNetPill(st.rtt);
+    // One toast each way (a host flicking tabs moves the table back and forth
+    // — don't narrate every hop). Nothing at all when the game just ended.
+    let msg = null;
+    if (st.serving && !lanShown) {
+      lanShown = true;
+      msg = st.host ? '📶 Everyone is on your network — your device is running the table'
+                    : '📶 Everyone is on the same network — playing locally';
+    } else if (!st.local && lanShown) {
+      lanShown = false;
+      if (!st.ended) msg = '☁️ Table moved back to the online server';
+    }
+    if (msg && isMultiplayer && Date.now() - lanToastAt > 15000) { lanToastAt = Date.now(); ui.toast(msg); }
   }
 
   // Session token for a room, if this device holds one (else undefined: the
@@ -791,6 +829,13 @@
     net.on('joined', (m) => {
       $('#mpError').textContent = '';
       if (m.host != null) isHost = m.host;
+      // Seated by the table on the local network (js/lan.js): the cloud
+      // session, its token and reconnect state stay exactly as they were.
+      if (m.local) {
+        ui.setReconnecting(false);
+        net.send({ t: 'prefs', attacksMuted: BQ.Prefs.get().attacks === false });
+        return;
+      }
       // Remember who we are so a refresh / drop can reclaim this exact seat.
       if (m.token && m.code) {
         myName = myName || (session && session.name) || 'Player';
@@ -800,9 +845,11 @@
       // A successful (re)attach clears any reconnect backoff + banner.
       reconnectAttempts = 0;
       if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
-      ui.setReconnecting(false);
+      // viaLan: the game is on the local network now — keep the banner up
+      // until the table there seats us (or the cloud takes the game back).
+      if (!m.viaLan || BQ.Lan.serving()) ui.setReconnecting(false);
       renderUnfinished();
-      ui.setNetStatus('online', net.latencyMs);
+      refreshNetPill();
       // tell the table about preferences they can see (🛡️ = taunts muted)
       net.send({ t: 'prefs', attacksMuted: BQ.Prefs.get().attacks === false });
     });
@@ -896,6 +943,9 @@
       refreshUnfinished();
     });
     net.on('close', () => {
+      // The table is on the local network and still playing (maybe the
+      // internet just went down) — get the cloud socket back quietly.
+      if (BQ.Lan.serving()) { if (session) scheduleReconnect(); return; }
       ui.setNetStatus('offline');
       // Lost the socket. Any saved session (lobby OR mid-game) reconnects and
       // reclaims its seat transparently; without one there's nothing to resume.
@@ -904,7 +954,7 @@
       scheduleReconnect();
     });
     // Connection quality + presence — drive the status pill and seat dots.
-    net.on('pong', () => ui.setNetStatus('online', net.latencyMs));
+    net.on('pong', () => { if (!lanServing) ui.setNetStatus('online', net.latencyMs); });
     net.on('peers', (m) => {
       ui.renderPeers(m.seats);
       if (m.note && m.note.name !== myName) {
@@ -1230,7 +1280,14 @@
 
   function leaveMultiplayer() {
     if (BQ.Voice) BQ.Voice.leave();                     // hang up audio + close peers
-    if (net) { net.send({ t: 'leave' }); }
+    if (net) {
+      // Local-network table: a host hands it back to the cloud first; a
+      // player tells the table AND the cloud (which must free the seat).
+      lanShown = false;
+      const viaTable = BQ.Lan.leave();
+      net.send({ t: 'leave' });
+      if (viaTable) net.sendCloud({ t: 'leave' });
+    }
     if (session) dropBackup(session.code);              // we walked out — not ours to restore
     clearSession();                                     // don't auto-resume after leaving on purpose
     if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
@@ -1256,6 +1313,7 @@
     $('#prefHandScroll').checked = p.handScroll !== false;
     $('#prefFx').checked = p.fx !== false;
     $('#prefAttacks').checked = p.attacks !== false;
+    $('#prefLan').checked = p.lan !== false;
 
     const tables = $('#prefTables');
     tables.innerHTML = '';
@@ -1466,7 +1524,7 @@
         if (!attackCredit) { ui.toast('Recharges when you play a card'); return; }
         attackCredit = false;
         updateAttackBtns();
-        if (isMultiplayer && net && net.connected) {
+        if (isMultiplayer && netUp()) {
           net.send({ t: 'attack', kind: a.id });   // others still see it even if you muted your own screen
         } else if (BQ.Prefs.get().attacks === false) {
           ui.toast('Attack taunts are muted (🎨 Appearance)');
@@ -1488,7 +1546,7 @@
   }
 
   function sendEmote(type, text) {
-    if (isMultiplayer && net && net.connected) {
+    if (isMultiplayer && netUp()) {
       net.send(type === 'emote' ? { t: 'emote', emoji: text } : { t: 'chat', text });
     } else {
       ui.showEmote(0, text, localName(), type === 'emote');
@@ -1863,7 +1921,11 @@
       BQ.Prefs.set({ attacks: e.target.checked });
       ui.toast(e.target.checked ? 'Attack taunts on' : 'Attack taunts muted on your screen');
       // let everyone at the table see the 🛡️ state
-      if (net && net.connected) net.send({ t: 'prefs', attacksMuted: !e.target.checked });
+      if (netUp()) net.send({ t: 'prefs', attacksMuted: !e.target.checked });
+    });
+    $('#prefLan').addEventListener('change', (e) => {
+      BQ.Prefs.set({ lan: e.target.checked });
+      BQ.Lan.prefChanged();
     });
     $('#btnEmote').addEventListener('click', () => {
       BQ.Sound.click();
@@ -1873,6 +1935,7 @@
     setupEmotePanel();
     setupAttackRow();
     setupVoice();
+    BQ.Lan.attach({ getNet: () => net, deliver: (m) => { if (net) net.emit(m.t, m); }, onState: onLanState });
 
     // Mobile bottom bar + menu sheet
     $('#btnMobileEmote').addEventListener('click', () => {

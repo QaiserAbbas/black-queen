@@ -35,6 +35,19 @@
  * a later `resume` finds the room empty ("room-gone"), that client answers with
  * `restore` + blob and the room rehydrates from it, then everyone rejoins as
  * after an eviction.
+ *
+ * Local-network play: when every human at a started table can reach the host's
+ * device directly on their local network (js/lan.js proves it with a WebRTC
+ * channel that has no STUN/TURN), the host asks (`lanGo`) and the game moves
+ * there — the host's browser runs THIS class as the table (see the import map
+ * in index.html). This room then only coordinates (`this.lan`): it relays
+ * signaling, keeps every seat's socket, mirrors the local table's state
+ * (`lanSync`) and writes its history (`lanRecord`), and takes the game back
+ * (`reclaimFromLan`) when the host hands it over or vanishes, or someone off
+ * the network needs in.
+ *
+ * NB: these three imports are remapped for the browser (index.html import map
+ * → js/lan-shim.js). A new import here must be added to that shim too.
  * ===========================================================================*/
 
 import { Server, getServerByName } from "partyserver";
@@ -89,6 +102,18 @@ const BACKUP_DEBOUNCE_MS = 3000;
 // its "Active rooms" browser can tell a running table from a silent one (the
 // lobby shows a room quiet for 3x this long as idle — STALE_MS in lobby.js).
 const LOBBY_REFRESH_MS = 5 * 60 * 1000;
+// Local-network play: a host asked to hand the table back gets this long to
+// answer before the room resumes from its last mirror of the local table.
+const LAN_RECALL_MS = 8 * 1000;
+// …and a local table whose host has no socket here at all (reloading, or the
+// device is gone) gets this long to come back first.
+const LAN_HOST_GRACE_MS = 20 * 1000;
+// While the table is local, these still mean something here: heartbeats, a
+// returning player taking their socket back, voice (it stays on the cloud),
+// and the signaling that builds the local links.
+const LAN_PASSTHROUGH = new Set(["ping", "resume", "voice", "rtc", "lanRtc"]);
+// Joiners / spectators waiting for a local table to come back (bounded).
+const LAN_PENDING_MAX = 16;
 
 export class Main extends Server {
   // Keep the object in memory (and its setTimeout bot/grace timers alive) while
@@ -123,6 +148,14 @@ export class Main extends Server {
     this.backupTimer = null;      // pending host-backup send (debounced)
     this._backupKeyP = null;      // cached AES key import (Promise) from the Lobby
     this.lastLobbyReport = 0;     // ms of the last reportLobby (heartbeat pacing)
+
+    this.lan = null;              // { epoch, hostSeat } while the table runs on the host's local network
+    this.lanEpoch = 0;            // bumps on every move to local play (stale lan* messages are ignored)
+    this.lanSeq = 0;              // newest local-table state mirrored here (lanSync ordering)
+    this.lanTimer = null;         // pending reclaim: a recall unanswered, or the local host gone
+    this.lanRecalling = null;     // why the table was asked back: 'join' | 'lost'
+    this.lanPending = [];         // [{ id, msg }] joins / spectates waiting for the table to come back
+    this.quietUntil = 0;          // no "is back online" toasts while a whole table re-seats
 
     // connId -> { seat, name, lastChatAt, userId }
     this.clients = new Map();
@@ -161,6 +194,9 @@ export class Main extends Server {
         attacksMuted: !!s.attacksMuted, attackUsed: !!s.attackUsed,
       })),
       engine: this.engine ? this.engine.snapshot() : null,
+      lan: this.lan,
+      lanEpoch: this.lanEpoch,
+      lanSeq: this.lanSeq,
     };
   }
 
@@ -217,6 +253,11 @@ export class Main extends Server {
     this.ready = new Set(data.ready || []);
     this.paused = !!data.paused;
     this.vacancy = data.vacancy || null;
+    // Evicted while the table was being played on a local network: it still
+    // is — this room goes back to coordinating it (no timers of its own).
+    this.lanEpoch = data.lanEpoch || 0;
+    this.lan = data.lan || null;
+    this.lanSeq = this.lan ? (data.lanSeq || 0) : 0;
 
     this.seats = (data.seats || []).map((sd) => {
       const seat = {
@@ -234,9 +275,7 @@ export class Main extends Server {
     });
 
     if (data.engine) {
-      if (this.gameType === "treeky") this.engine = BQ.TreekyEngine.fromSnapshot(data.engine);
-      else if (this.gameType === "bluff") this.engine = BQ.BluffEngine.fromSnapshot(data.engine);
-      else this.engine = BQ.GameEngine.fromSnapshot(data.engine);
+      this.engine = this.engineFrom(data.engine);
       if (this.gameType === "treeky") this.wireTreekyEngine();
       else if (this.gameType === "bluff") this.wireBluffEngine();
       else this.wireEngine();
@@ -244,16 +283,24 @@ export class Main extends Server {
 
     if (this.started) {
       // Freeze each awaited player's turn briefly, then let a bot cover — the
-      // same grace an ordinary disconnect gets.
-      this.seats.forEach((s, i) => {
-        if (s.disconnected && !s.botFill) this.beginDisconnectGrace(i);
-      });
+      // same grace an ordinary disconnect gets. (A local table runs its own.)
+      if (!this.lan) {
+        this.seats.forEach((s, i) => {
+          if (s.disconnected && !s.botFill) this.beginDisconnectGrace(i);
+        });
+      }
       // Nobody may come back at all — hold the room, then expire it. A hold
       // already in progress keeps its original deadline. (A reconnect clears
       // the alarm in onConnect, as always.)
       this.holdUntil = data.holdUntil || null;
       this.armHold();
     }
+  }
+
+  engineFrom(snap) {
+    if (this.gameType === "treeky") return BQ.TreekyEngine.fromSnapshot(snap);
+    if (this.gameType === "bluff") return BQ.BluffEngine.fromSnapshot(snap);
+    return BQ.GameEngine.fromSnapshot(snap);
   }
 
   // Nobody is connected to an in-progress room: keep it for ROOM_HOLD_MS, waking
@@ -300,6 +347,7 @@ export class Main extends Server {
     const data = this.serializeRoom();
     data.code = this.name;            // a blob only ever restores ITS OWN room
     data.savedAt = Date.now();
+    data.lan = null;                  // …and always as a cloud-run table
     // gzip first: the JSON shrinks ~4-5x, so shipping it to every player each
     // burst stays cheap even on mobile data.
     const plain = await gzip(new TextEncoder().encode(JSON.stringify(data)));
@@ -364,7 +412,7 @@ export class Main extends Server {
   // timers died with the previous instance).
   kickEngine() {
     const e = this.engine;
-    if (!e || this.paused) return;
+    if (!e || this.paused || this.lan) return;
     if ((e.phase === "awaitHuman" || (this.gameType === "treeky" && e.phase === "awaitSuit")) &&
         this.seatIsBot(e.currentPlayerIndex)) {
       this.scheduleBot(e.currentPlayerIndex);
@@ -461,7 +509,9 @@ export class Main extends Server {
   // Finalize a finished game: stamp the winner + write one game_players row per
   // seat (humans carry user_id; bots/vacated seats are null).
   // ranking is an array of { index, ... } objects, best-first (both engines).
-  recordGameOver(winnerSeat, ranking, scores) {
+  // bots (optional): which seats were bots — a local table reports its own,
+  // since sockets here say nothing about who was playing over there.
+  recordGameOver(winnerSeat, ranking, scores, bots) {
     if (!this.gameDbId || !this.env.DB) return;
     const rank = (seat) => {
       if (!Array.isArray(ranking)) return null;
@@ -478,7 +528,8 @@ export class Main extends Server {
           `INSERT OR REPLACE INTO game_players (game_id, seat, user_id, name, is_bot, final_score, rank)
            VALUES (?, ?, ?, ?, ?, ?, ?)`
         ).bind(
-          this.gameDbId, seat, s.userId || null, s.name, this.seatIsBot(seat) ? 1 : 0,
+          this.gameDbId, seat, s.userId || null, s.name,
+          (Array.isArray(bots) ? !!bots[seat] : this.seatIsBot(seat)) ? 1 : 0,
           (scores && scores[seat] != null) ? scores[seat] : null, rank(seat)
         )
       );
@@ -602,9 +653,13 @@ export class Main extends Server {
 
   broadcastPresence(note) {
     const payload = this.presenceState();
+    // A whole table re-seating at once (moving to / back from local play) is
+    // not news for every seat.
+    if (note && note.kind === "back" && Date.now() < this.quietUntil) note = null;
     if (note) payload.note = note;
     this.sendAll(payload);
     this.broadcastVoice();
+    this.broadcastLan();
   }
 
   voiceRoster() {
@@ -698,6 +753,14 @@ export class Main extends Server {
     // right userId (resolves in ~1ms after connect; a no-op thereafter).
     if (meta.userReady) await meta.userReady;
 
+    // The table is being played on the host's local network: this room only
+    // coordinates it until it comes back (see handleLanMessage).
+    if (this.lan && !LAN_PASSTHROUGH.has(msg.t)) {
+      await this.handleLanMessage(conn, meta, msg);
+      this.save();
+      return;
+    }
+
     switch (msg.t) {
       case "ping": {
         this.send(conn, { t: "pong", ts: msg.ts });
@@ -748,6 +811,28 @@ export class Main extends Server {
         if (!seat || !seat.connId) break;
         const c = this.connOf(seat.connId);
         if (c) this.send(c, { t: "rtc", from: meta.seat, data: msg.data });
+        break;
+      }
+      // Local-network play: signaling for the host ↔ player data channels,
+      // relayed like `rtc`. `from` is stamped here, so the host knows for sure
+      // which seat a channel belongs to. A host with no socket answers `gone`.
+      case "lanRtc": {
+        if (meta.seat < 0) break;
+        const to = msg.to | 0;
+        const seat = this.seats[to];
+        if (!seat || to === meta.seat) break;
+        const c = this.connOf(seat.connId);
+        if (c) this.send(c, { t: "lanRtc", from: meta.seat, data: msg.data });
+        else this.send(conn, { t: "lanRtc", from: to, data: { id: msg.data && msg.data.id, gone: true } });
+        break;
+      }
+      // The host's device reaches every connected player directly on the
+      // local network — move the game there.
+      case "lanGo": {
+        if (!this.started || !this.engine || meta.seat < 0 || this.hostConnId !== conn.id) break;
+        const reason = this.lanBlocker(meta.seat, msg.seats);
+        if (reason) { this.send(conn, { t: "lanNo", reason }); break; }
+        this.startLan(conn, meta.seat);
         break;
       }
       case "create": {
@@ -900,7 +985,21 @@ export class Main extends Server {
         const isHost = !!(this.hostToken && this.hostToken === seat.token) || !this.connOf(this.hostConnId);
         if (isHost) this.hostConnId = conn.id;
 
+        if (this.lan) {
+          // The game itself is on the host's local network: take the socket
+          // back, and let the local table (re)seat this player.
+          this.send(conn, { t: "joined", code: this.name, seat: seatIdx, token: seat.token,
+            host: seatIdx === this.lan.hostSeat, viaLan: true });
+          this.sendLan(conn);
+          if (seatIdx === this.lan.hostSeat) this.resumeLanHost(conn);
+          this.broadcastVoice();
+          this.reportLobby();
+          break;
+        }
+
         this.send(conn, { t: "joined", code: this.name, seat: seatIdx, token: seat.token, host: isHost });
+        // Before the resync below: a client leaving local play hears it first.
+        this.sendLan(conn);
 
         if (this.started && this.engine) {
           const e = this.engine;
@@ -936,6 +1035,7 @@ export class Main extends Server {
           break;
         }
         const data = await this.openBackup(msg.blob);
+        if (data) data.lan = null;           // a restored table is always cloud-run
         const ok = data && data.code === this.name && data.created && data.rules && data.started && data.engine &&
           Array.isArray(data.seats) && data.seats.some((s) =>
             (msg.token && s.token && s.token === msg.token) ||
@@ -1629,6 +1729,7 @@ export class Main extends Server {
   /* ---- disconnect handling ------------------------------------------------ */
   async dropClient(conn, intentional) {
     if (!this.clients.has(conn.id)) return;
+    if (this.lan) return this.dropClientLan(conn, intentional);
     const meta = this.clients.get(conn.id);
     this.clients.delete(conn.id);
 
@@ -1729,6 +1830,287 @@ export class Main extends Server {
       // Report first: broadcast's heartbeat then sees a fresh report and skips.
       this.reportLobby();
       this.broadcast({ name: "sync" });
+    }
+    this.save();
+  }
+
+  /* =============================================================================
+   * Local-network play (client side: js/lan.js)
+   * -----------------------------------------------------------------------------
+   * Cloud-run table:  every seated player hears `lan` (who hosts, has it
+   * started) and opens a data channel to the host's device over signaling
+   * relayed here (`lanRtc`). The host reports when it reaches everyone
+   * (`lanGo`); this room freezes its own timers, hands the host the game
+   * (`lanStart`, minus seat tokens and account ids) and tells the table it is
+   * local now.
+   * Local table:  this room keeps every socket and mirrors the game the host
+   * reports (`lanSync`, `lanRecord`), so it can take it back from exactly
+   * there — when the host hands it over (`lanReturn`: it left, backgrounded
+   * its tab, or was asked to because someone off the network needs in), or
+   * when the host's device is gone (a player reports `lanLost`).
+   * ===========================================================================*/
+  lanStatus() {
+    const hostSeat = this.lan ? this.lan.hostSeat
+      : this.seats.findIndex((s) => s.connId && s.connId === this.hostConnId && this.connOf(s.connId));
+    return { t: "lan", on: !!this.lan, epoch: this.lan ? this.lan.epoch : 0, hostSeat, started: this.started };
+  }
+  sendLan(conn) { this.send(conn, this.lanStatus()); }
+  broadcastLan() {
+    const payload = this.lanStatus();
+    this.seatedConns().forEach((c) => this.send(c, payload));
+  }
+
+  lanHostConn() {
+    const s = this.lan && this.seats[this.lan.hostSeat];
+    return (s && s.connId) ? this.connOf(s.connId) : null;
+  }
+
+  // Why the table can't move to the host's network right now (null: it can).
+  // Every player connected here must have a working channel to the host.
+  lanBlocker(hostSeat, linkedSeats) {
+    if (this.lanPending.length) return "busy";
+    if ([...this.spectators].some((id) => this.connOf(id))) return "spectators";
+    const linked = new Set((Array.isArray(linkedSeats) ? linkedSeats : []).map((n) => n | 0));
+    const offLan = this.seats.some((s, i) =>
+      i !== hostSeat && s.connId && this.connOf(s.connId) && !linked.has(i));
+    return offLan ? "not-linked" : null;
+  }
+
+  // The room as the local table needs it. Seat tokens and account ids never
+  // leave the cloud: each held seat gets a throwaway token the local table
+  // re-seats its player with, and there is no history id to write against.
+  lanView(hostSeat) {
+    const data = this.serializeRoom();
+    data.seats.forEach((s) => {
+      // Held for a player with no socket here: the local table waits for
+      // them (grace, then a bot) like for any dropped player.
+      if (s.token && !s.connected) s.disconnected = true;
+      if (s.token) s.token = this.makeToken();
+      s.userId = null;
+    });
+    data.hostToken = (data.seats[hostSeat] && data.seats[hostSeat].token) || null;
+    data.gameDbId = null;
+    data.holdUntil = null;
+    data.lan = null;
+    data.lanSeq = 0;
+    return data;
+  }
+
+  startLan(conn, hostSeat) {
+    // From here on no bot turn, grace timer or doubt window may fire in this
+    // room: the local table owns the game and runs its own.
+    this.clearAllTimers();
+    this.clearBluffWindow();
+    this.seats.forEach((s) => { s.botPlayTimer = null; s.turnGraceTimer = null; s.graceTimer = null; });
+    this.lanEpoch += 1;
+    this.lan = { epoch: this.lanEpoch, hostSeat };
+    this.lanSeq = 0;
+    this.lanRecalling = null;
+    this.send(conn, { t: "lanStart", epoch: this.lan.epoch, seq: 0, state: this.lanView(hostSeat) });
+    this.broadcastLan();
+    this.save();
+    this.reportLobby();
+  }
+
+  // The local table's host is back on its socket (a reload, or the internet
+  // returned). It continues from its own saved copy when that is newer than
+  // our mirror; anything it was asked while away still stands.
+  resumeLanHost(conn) {
+    this.send(conn, { t: "lanStart", epoch: this.lan.epoch, seq: this.lanSeq, state: this.lanView(this.lan.hostSeat) });
+    if (this.lanTimer) { clearTimeout(this.lanTimer); this.lanTimer = null; }
+    if (this.lanPending.length) this.recallLan("join");
+    else this.lanRecalling = null;     // a player who lost the host will re-link (or say so again)
+  }
+
+  async handleLanMessage(conn, meta, msg) {
+    const lan = this.lan;
+    const seat = meta.seat >= 0 ? this.seats[meta.seat] : null;
+    const fromHost = !!seat && meta.seat === lan.hostSeat && seat.connId === conn.id;
+    const current = msg.epoch === lan.epoch;
+    switch (msg.t) {
+      case "lanSync": {
+        const seq = Number(msg.seq) || 0;
+        if (fromHost && current && seq > this.lanSeq && this.applyLanState(msg.state)) {
+          this.lanSeq = seq;
+          if (Date.now() - this.lastLobbyReport > LOBBY_REFRESH_MS) this.reportLobby();
+        }
+        break;
+      }
+      case "lanRecord": {
+        if (fromHost && current) this.applyLanRecord(msg.rec);
+        break;
+      }
+      case "lanReturn": {
+        if (fromHost && current) await this.reclaimFromLan(msg.state);
+        break;
+      }
+      // A player can't reach the host on the network any more (they left the
+      // Wi-Fi, or the host's device is gone): the table comes back here.
+      case "lanLost": {
+        if (seat && seat.connId === conn.id && meta.seat !== lan.hostSeat && current) this.recallLan("lost");
+        break;
+      }
+      // Somebody new needs the table, so it has to come back to the cloud
+      // first; their request is replayed once it has (reclaimFromLan).
+      case "join":
+      case "spectate": {
+        if (msg.t === "join" && !this.seats.some((s) => s.open)) {
+          this.send(conn, { t: "error", msg: "That game already started." });
+          break;
+        }
+        if (!this.lanPending.some((p) => p.id === conn.id) && this.lanPending.length < LAN_PENDING_MAX) {
+          this.lanPending.push({ id: conn.id, msg });
+        }
+        this.recallLan("join");
+        break;
+      }
+      case "restore": {
+        this.send(conn, { t: "restoreFail", reason: "room-live" });
+        break;
+      }
+      case "leave": {
+        // The host walking out takes the local table with it: resume here
+        // from the mirror first, then it leaves like from any cloud table.
+        if (fromHost) await this.reclaimFromLan(null);
+        await this.dropClient(conn, true);
+        break;
+      }
+      default: break;   // moves, chat, ready… belong to the local table
+    }
+  }
+
+  // Mirror the local table's state. Seat ownership (tokens, accounts,
+  // sockets) stays ours; everything about the game comes from over there.
+  applyLanState(st) {
+    if (!st || typeof st !== "object" || !st.engine || !Array.isArray(st.seats) ||
+        st.seats.length !== this.seats.length) return false;
+    let engine;
+    try { engine = this.engineFrom(st.engine); } catch (_) { return false; }
+    this.engine = engine;            // not wired: only played again after reclaimFromLan
+    if (st.rules && typeof st.rules === "object") this.rules = st.rules;
+    this.lastRoundEnd = st.lastRoundEnd || null;
+    this.lastGameOver = st.lastGameOver || null;
+    this.ready = new Set(Array.isArray(st.ready) ? st.ready : []);
+    this.paused = !!st.paused;
+    this.vacancy = st.vacancy || null;
+    this.seats.forEach((s, i) => {
+      const sd = st.seats[i] || {};
+      if (typeof sd.name === "string" && sd.name) s.name = sd.name.slice(0, 24);
+      s.isBot = !!sd.isBot; s.open = !!sd.open; s.botFill = !!sd.botFill;
+      s.disconnected = !!sd.disconnected;
+      s.attacksMuted = !!sd.attacksMuted; s.attackUsed = !!sd.attackUsed;
+      // The local table let this seat go (its player left for good): so do we.
+      if (!sd.token && s.token) {
+        if (this.hostToken === s.token) this.hostToken = null;
+        s.token = null; s.userId = null;
+      }
+      // Nobody can come back to a seat without a token — don't wait for them.
+      if (!s.token && s.disconnected) { s.disconnected = false; if (!s.open) s.isBot = true; }
+    });
+    return true;
+  }
+
+  // History rows for a game played on the local network (no database there).
+  applyLanRecord(rec) {
+    if (!rec || typeof rec !== "object") return;
+    const seatNo = (n) => (Number.isInteger(n) && n >= 0 && n < this.seats.length) ? n : null;
+    if (rec.kind === "start") this.recordGameStart();
+    else if (rec.kind === "round") this.recordRound(Number(rec.roundNo) || 0, rec.scores, rec.totals, rec.breakdown);
+    else if (rec.kind === "over") this.recordGameOver(seatNo(rec.winnerSeat), rec.ranking, rec.scores, rec.bots);
+  }
+
+  // Ask the host to hand the table back; if it can't (no socket, or no
+  // answer), resume from the last mirror after a short wait.
+  recallLan(reason) {
+    if (!this.lan) return;
+    this.lanRecalling = reason;
+    const host = this.lanHostConn();
+    if (host) this.send(host, { t: "lanRecall", epoch: this.lan.epoch, reason });
+    if (!this.lanTimer) {
+      this.lanTimer = setTimeout(() => {
+        this.lanTimer = null;
+        this.reclaimFromLan(null).catch((e) => console.error("reclaim from local table failed", e));
+      }, host ? LAN_RECALL_MS : LAN_HOST_GRACE_MS);
+    }
+  }
+
+  // Take the table back from the local network: rebuild it exactly as after
+  // an eviction (hydrate), then re-seat everyone still connected here like a
+  // reconnect, host first, and replay whoever was waiting to join or watch.
+  async reclaimFromLan(state) {
+    if (!this.lan) return;
+    const before = this.serializeRoom();
+    if (state) this.applyLanState(state);
+    if (this.lanTimer) { clearTimeout(this.lanTimer); this.lanTimer = null; }
+    this.lan = null;
+    this.lanSeq = 0;
+    this.lanRecalling = null;
+
+    const live = [];
+    this.clients.forEach((m, id) => {
+      const s = this.seats[m.seat];
+      const c = this.connOf(id);
+      if (c && s && s.connId === id && s.token) live.push({ c, token: s.token, host: s.token === this.hostToken });
+    });
+    live.sort((a, b) => (b.host ? 1 : 0) - (a.host ? 1 : 0));
+    const voice = this.seats.map((s) => !!s.voice);
+    // A held seat whose player has no socket here is awaiting them, exactly
+    // like after a drop (hydrate then gives it the reconnect grace).
+    this.seats.forEach((s) => { if (s.token && !(s.connId && this.connOf(s.connId))) s.disconnected = true; });
+
+    this.clearAllTimers();
+    try {
+      this.hydrate(this.serializeRoom());
+    } catch (e) {
+      // The local table sent something unplayable — fall back to where this
+      // room stood before applying it.
+      console.error("local table state unusable", e);
+      before.lan = null;
+      try { this.hydrate(before); } catch (e2) { console.error("reclaim failed", e2); await this.wipe(); return; }
+    }
+    this.seats.forEach((s, i) => { s.voice = voice[i]; });
+    this.quietUntil = Date.now() + 5000;
+
+    for (const x of live) this.sendLan(x.c);
+    for (const x of live) await this.handleMessage(x.c, { t: "resume", token: x.token });
+    const pending = this.lanPending;
+    this.lanPending = [];
+    for (const p of pending) {
+      const c = this.connOf(p.id);
+      if (c && this.clients.has(p.id)) await this.handleMessage(c, p.msg);
+    }
+    this.save();
+    this.reportLobby();
+  }
+
+  // A socket closed while the table is local. The game isn't ours to touch
+  // (the local table holds that seat or bot-covers it): only stop routing to
+  // the socket, and free the seat for good when its player left on purpose.
+  async dropClientLan(conn, intentional) {
+    const meta = this.clients.get(conn.id);
+    this.clients.delete(conn.id);
+    this.spectators.delete(conn.id);
+    this.lanPending = this.lanPending.filter((p) => p.id !== conn.id);
+    const seat = (meta && meta.seat >= 0) ? this.seats[meta.seat] : null;
+    if (seat && seat.connId === conn.id) {
+      seat.connId = null;
+      if (intentional) {
+        if (this.hostToken && this.hostToken === seat.token) this.hostToken = null;
+        seat.token = null;
+        seat.userId = null;
+      }
+    }
+    if (this.hostConnId === conn.id) {
+      const next = this.seats.find((s) => s.connId && this.connOf(s.connId));
+      if (next) this.hostConnId = next.connId;
+    }
+    this.broadcastVoice();
+    if (!this.seats.some((s) => s.connId && this.connOf(s.connId))) {
+      // Nobody left on this side — perhaps the internet went down while the
+      // local table plays on. Hold the room like any idle game.
+      this.holdUntil = null;
+      this.armHold();
+      await this.reportLobby();
     }
     this.save();
   }
